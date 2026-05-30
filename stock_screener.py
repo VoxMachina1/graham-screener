@@ -51,7 +51,7 @@ FINNHUB_API_KEY  = os.environ["FINNHUB_API_KEY"]
 # Google Sheets
 # Locally:  set GSHEET_CREDS_JSON to the path of your service account JSON file.
 # Actions:  set GSHEET_CREDS_JSON to the entire JSON content as a secret (see README).
-GSHEET_CREDS_JSON   = os.environ["GSHEET_CREDS_JSON"]
+GSHEET_CREDS_JSON   = os.environ.get("GSHEET_CREDS_JSON", "")
 GSHEET_SPREADSHEET  = os.environ.get("GSHEET_SPREADSHEET", "Lynch & Graham Screener")
 GSHEET_WORKSHEET    = os.environ.get("GSHEET_WORKSHEET",   "Results")
 
