@@ -13,7 +13,7 @@ A brownfield output-layer swap: replace Google Sheets push with a JSON writer, w
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Security & Pipeline Prerequisites** - Fix the hardcoded API key, audit git history, and configure the Actions workflow so the repo is safe to publish and the CI commit chain is correct
-- [ ] **Phase 2: JSON Output Pipeline** - Replace `push_to_gsheets()` with a JSON writer and verify the full Actions → commit → Pages publish loop with `workflow_dispatch`
+- [x] **Phase 2: JSON Output Pipeline** - Replace `push_to_gsheets()` with a JSON writer and verify the full Actions → commit → Pages publish loop with `workflow_dispatch`
 - [ ] **Phase 3: Interactive Dashboard** - Build the complete GitHub Pages frontend: Tabulator table with all columns, color coding, filters, Top 20 panel, methodology page, and nav
 - [ ] **Phase 4: Google & Tiingo Cleanup** - Remove all Google dependencies and dead Tiingo config from the codebase now that the new pipeline is confirmed
 
@@ -81,6 +81,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Security & Pipeline Prerequisites | 1/1 | Complete | 2026-05-30 |
-| 2. JSON Output Pipeline | 0/1 | Not started | - |
+| 2. JSON Output Pipeline | 1/1 | Complete | 2026-05-30 |
 | 3. Interactive Dashboard | 0/? | Not started | - |
 | 4. Google & Tiingo Cleanup | 0/? | Not started | - |
