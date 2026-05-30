@@ -2,6 +2,7 @@
 .env
 *.json
 !.planning/*.json
+!docs/data/results.json
 # If you ever download your service account key into the project folder,
 # this prevents it from being committed. Keep it outside the repo if possible.
 

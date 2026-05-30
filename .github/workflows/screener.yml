@@ -1,0 +1,46 @@
+name: Run Stock Screener
+
+on:
+  schedule:
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run screener
+        env:
+          TIINGO_API_KEYS:     ${{ secrets.TIINGO_API_KEYS }}
+          FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
+          FINNHUB_API_KEY:     ${{ secrets.FINNHUB_API_KEY }}
+          GSHEET_CREDS_JSON:   ${{ secrets.GSHEET_CREDS_JSON }}
+          GSHEET_SPREADSHEET:  ${{ secrets.GSHEET_SPREADSHEET }}
+          GSHEET_WORKSHEET:    ${{ secrets.GSHEET_WORKSHEET }}
+        run: python stock_screener.py
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/results.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update screener results"
+            git push
+          fi

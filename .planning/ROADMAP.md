@@ -12,7 +12,7 @@ A brownfield output-layer swap: replace Google Sheets push with a JSON writer, w
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Security & Pipeline Prerequisites** - Fix the hardcoded API key, audit git history, and configure the Actions workflow so the repo is safe to publish and the CI commit chain is correct
+- [x] **Phase 1: Security & Pipeline Prerequisites** - Fix the hardcoded API key, audit git history, and configure the Actions workflow so the repo is safe to publish and the CI commit chain is correct
 - [ ] **Phase 2: JSON Output Pipeline** - Replace `push_to_gsheets()` with a JSON writer and verify the full Actions → commit → Pages publish loop with `workflow_dispatch`
 - [ ] **Phase 3: Interactive Dashboard** - Build the complete GitHub Pages frontend: Tabulator table with all columns, color coding, filters, Top 20 panel, methodology page, and nav
 - [ ] **Phase 4: Google & Tiingo Cleanup** - Remove all Google dependencies and dead Tiingo config from the codebase now that the new pipeline is confirmed
@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. `screener.yml` declares `permissions: contents: write` and configures `github-actions[bot]` identity before any commit step
   4. `screener.yml` commits only `docs/data/results.json` using a conditional pattern that skips commit when data is unchanged
   5. `docs/.nojekyll` exists and `.gitignore` has a `!docs/data/results.json` exception so the data file can be tracked
-**Plans:** TBD
+**Plans:** 01-01-PLAN.md (1 plan, Wave 1, 5 tasks) ✓ Complete 2026-05-30
 
 ### Phase 2: JSON Output Pipeline
 **Goal:** The screener writes `results.json` to `docs/data/` on every run and the Actions workflow commits and pushes it — verifiable by triggering `workflow_dispatch` and seeing the file appear on Pages
@@ -42,7 +42,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The script exits non-zero and skips the write if fewer than 100 rows were produced
   3. A manual `workflow_dispatch` run succeeds: Actions commits `docs/data/results.json` and GitHub Pages serves it at the public URL within ~5 minutes
   4. The JSON file uses compact encoding and is fetchable directly in a browser at `https://<user>.github.io/<repo>/data/results.json`
-**Plans:** TBD
+**Plans:** 1 plan (Wave 1)
+Plans:
+- [ ] 02-01-PLAN.md — Add write_json() to stock_screener.py and verify end-to-end via workflow_dispatch
 
 ### Phase 3: Interactive Dashboard
 **Goal:** A user opening the GitHub Pages URL sees a fully functional, color-coded, filterable Lynch/Graham dashboard with a Top 20 panel and a linked methodology page
@@ -78,7 +80,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security & Pipeline Prerequisites | 0/? | Not started | - |
-| 2. JSON Output Pipeline | 0/? | Not started | - |
+| 1. Security & Pipeline Prerequisites | 1/1 | Complete | 2026-05-30 |
+| 2. JSON Output Pipeline | 0/1 | Not started | - |
 | 3. Interactive Dashboard | 0/? | Not started | - |
 | 4. Google & Tiingo Cleanup | 0/? | Not started | - |
