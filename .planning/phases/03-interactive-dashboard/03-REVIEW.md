@@ -9,10 +9,10 @@ files_reviewed_list:
   - docs/style.css
   - stock_screener.py
 findings:
-  critical: 4
+  critical: 5
   warning: 4
   info: 3
-  total: 11
+  total: 12
 status: issues_found
 ---
 
@@ -115,6 +115,29 @@ growth_pct = _safe_float(fh.get("epsGrowth5Y") or fh.get("epsGrowth3Y"))
 if growth_pct is not None:
     growth_pct = growth_pct * 100  # Finnhub returns 0.15, we need 15.0
 ```
+
+---
+
+### CR-05: BRK-B uses BRK-A price but BRK-A-equivalent EPS — fair values overstated by ~1,500×
+
+**File:** `stock_screener.py` (data fetch / ticker normalization path)
+
+**Issue:** Berkshire Hathaway Class B (BRK-B) shares trade at roughly 1/1,500th the price of Class A (BRK-A). yfinance (and some Finnhub endpoints) report EPS for BRK-B in Class A equivalents — the same large per-share value (~$60,000+) as BRK-A — while returning the correct Class B price (~$470). When `lynch_metrics` and `graham_metrics` receive a Class A EPS paired with a Class B price, every fair value and ratio is off by the A/B conversion factor (~1,500×).
+
+**Observed:** BRK-B shows a fair value roughly 1,000–1,500× larger than its actual price, while appearing to fetch the correct (lower) Class B price.
+
+**Root cause candidates (in priority order):**
+1. yfinance `info["trailingEps"]` for `BRK-B` returns the Class A per-share figure rather than the adjusted Class B figure
+2. Finnhub `basicEps` for `BRK-B` returns the Class A equivalent
+3. The screener normalizes `BRK-B` → `BRK-A` for one API call but not the other
+
+**Fix:** After fetching EPS, detect the A/B mismatch by checking whether `price / eps` produces an implausible P/E (e.g. P/E < 0.01 or > 10,000) and flag the row with an Error. Alternatively, add an explicit BRK-B conversion constant:
+```python
+BRK_CLASS_RATIO = 1500  # BRK-A EPS ÷ BRK-B shares outstanding adjustment
+if ticker == "BRK-B" and eps is not None:
+    eps = eps / BRK_CLASS_RATIO
+```
+The ratio should be confirmed against the current conversion factor (historically ~1,500:1, set when BRK-B was created in 1996).
 
 ---
 
