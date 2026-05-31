@@ -87,14 +87,16 @@
       </dl>
 
       <h3>Company Categories</h3>
-      <p>Column: <code>Lynch_Lynch_Category</code> — automatically assigned based on the EPS growth rate.</p>
+      <p>Column: <code>Lynch_Lynch_Category</code> — automatically assigned based on the EPS growth rate.
+         Lynch defined six categories in <em>One Up on Wall Street</em> (Ch. 8); this screener uses a
+         simplified three-category version covering the growth-stock spectrum.</p>
       <dl>
         <dt>Slow Grower</dt>
-        <dd>Growth below 5% — mature or utility-type companies</dd>
+        <dd>Growth below 10% — mature companies growing near GDP rate; Lynch expected modest, bond-like returns</dd>
         <dt>Stalwart</dt>
-        <dd>Growth between 5% and 12% — large, steady compounders</dd>
+        <dd>Growth between 10% and 20% — large, steady compounders; Lynch expected 30–50% gains over several years</dd>
         <dt>Fast Grower</dt>
-        <dd>Growth above 12% — higher growth, but with more valuation risk</dd>
+        <dd>Growth above 20% — Lynch's favourite category; small, aggressive enterprises that can return 10–100×, but carry the most valuation risk</dd>
       </dl>
 
       <h3>Key Metrics</h3>
@@ -108,21 +110,31 @@
         <dt><code>Lynch_FV_GplusD</code></dt>
         <dd>G+D fair value: EPS &times; (Growth% + Dividend%). The primary Lynch fair value estimate.</dd>
         <dt><code>Lynch_Lynch_BuyPrice</code></dt>
-        <dd>Category-adjusted buy price — applies an extra discount for Fast Growers, less for Stalwarts.</dd>
+        <dd>Category-adjusted buy price — a category-specific discount applied to the G+D fair value
+            (EPS &times; (Growth% + Dividend%)). Positive <code>Lynch_Lynch_Discount_Pct</code> means the
+            stock is trading below this price.</dd>
         <dt><code>Lynch_Lynch_Discount_Pct</code></dt>
         <dd>How far below Lynch_BuyPrice the stock is currently trading. Positive = trading below buy price (good).</dd>
       </dl>
 
       <h3>Discount Factors by Category</h3>
-      <p>The buy price applies a category-specific discount to the conservative fair value:</p>
+      <p>The buy price applies a category-specific discount to the G+D fair value
+         (EPS &times; (Growth% + Dividend%)), providing a margin of safety relative to Lynch's
+         primary fair value estimate:</p>
       <dl>
         <dt>Slow Grower</dt>
-        <dd>Buy at 75% of conservative fair value</dd>
+        <dd>Buy at 75% of G+D fair value</dd>
         <dt>Stalwart</dt>
-        <dd>Buy at 80% of conservative fair value</dd>
+        <dd>Buy at 80% of G+D fair value</dd>
         <dt>Fast Grower</dt>
-        <dd>Buy at 70% of conservative fair value (additional discount for growth risk)</dd>
+        <dd>Buy at 70% of G+D fair value — additional discount for the higher execution risk in fast-growing companies</dd>
       </dl>
+
+      <h3>Sources</h3>
+      <ul>
+        <li>Peter Lynch, <em>One Up on Wall Street</em> (1989) — Ch. 8 (company categories), Ch. 13 (PEG ratio fair value rule)</li>
+        <li>Peter Lynch, <em>Beating the Street</em> (1993) — PEGY ratio (dividend-adjusted PEG)</li>
+      </ul>
     </section>
 
     <!-- ── Panel 2: Graham Signals ── -->
@@ -178,6 +190,23 @@
         (good — potential margin of safety). A negative value means it is trading at a premium
         to fair value.
       </p>
+
+      <h3>Important Caveat</h3>
+      <p>
+        Graham himself included a warning alongside this formula: <em>"This material is supplied
+        for illustrative purposes only&hellip; let the reader not be misled into thinking that such
+        projections have any high degree of reliability."</em> The formula appears briefly in
+        Chapter 11 to illustrate why the market's growth expectations are often unjustified —
+        it is not presented in the stock-selection chapters and carries no supporting qualitative
+        checks. Use the Graham signals as a valuation reference, not a buy/sell prescription.
+      </p>
+
+      <h3>Sources</h3>
+      <ul>
+        <li>Benjamin Graham, <em>The Intelligent Investor</em>, revised edition (1973) — Ch. 11 (intrinsic value formula: V = EPS &times; (8.5 + 2g) &times; 4.4 / Y)</li>
+        <li>Growth rate is capped at 15% for the Graham formula, consistent with Graham's own suggestion that projecting growth beyond 15% is speculative.</li>
+        <li>Version B (base P/E of 7, single g multiplier) is a conservative variant of the same rate-adjusted formula; it is not directly from Graham's text.</li>
+      </ul>
     </section>
 
     <!-- ── Panel 3: Defensive Checklist ── -->
@@ -204,6 +233,8 @@
       </dl>
 
       <h3>Eight-Point Checklist</h3>
+      <p>From <em>The Intelligent Investor</em>, Ch. 14. Where the screener adapts Graham's
+         original threshold, the original is noted.</p>
       <table class="checklist-table">
         <thead>
           <tr>
@@ -216,7 +247,7 @@
           <tr>
             <td>1</td>
             <td>Market capitalisation</td>
-            <td>&ge; $2 billion</td>
+            <td>&ge; $2 billion (Graham's original: annual sales &ge; $100M in 1973 dollars)</td>
           </tr>
           <tr>
             <td>2</td>
@@ -226,17 +257,17 @@
           <tr>
             <td>3</td>
             <td>Long-term debt / equity</td>
-            <td>&le; 1.0</td>
+            <td>&le; 1.0 (Graham's original: long-term debt &le; net current assets)</td>
           </tr>
           <tr>
             <td>4</td>
             <td>Earnings per share history</td>
-            <td>Positive EPS in 8 of the last 10 fiscal years</td>
+            <td>Positive EPS in 8 of the last 10 fiscal years (Graham's original: every year for 10 years)</td>
           </tr>
           <tr>
             <td>5</td>
             <td>Dividend history</td>
-            <td>Paid a dividend in 5 of the last 10 years</td>
+            <td>Paid a dividend in 5 of the last 10 years (Graham's original: uninterrupted for 20 years — relaxed to reflect modern tech-heavy universe)</td>
           </tr>
           <tr>
             <td>6</td>
@@ -266,18 +297,29 @@
       </p>
 
       <dl>
-        <dt>Price, EPS, dividends, balance sheet</dt>
+        <dt>Price, EPS history, dividends, balance sheet ratios</dt>
         <dd>Yahoo Finance via the <code>yfinance</code> Python library</dd>
+        <dt>EPS growth (5Y CAGR), P/B ratio, market cap, current ratio, debt/equity</dt>
+        <dd>Finnhub — pre-calculated fundamentals; yfinance history is used as fallback when Finnhub data is absent</dd>
         <dt>AAA corporate bond yield</dt>
-        <dd>FRED (Federal Reserve Economic Data) — fetched live on each run</dd>
+        <dd>FRED (Federal Reserve Economic Data) — Moody's AAA series, fetched live on each run</dd>
         <dt>Index constituents (S&amp;P 500, Dow 30, Nasdaq-100)</dt>
         <dd>Wikipedia — scraped on each run to keep the universe current</dd>
       </dl>
 
       <p>
-        Growth is calculated as EPS CAGR using the longest available window (typically 4–5 years).
-        If growth is negative it is floored at 1% so a conservative valuation is still computed.
+        Growth is sourced from Finnhub's pre-calculated 5-year EPS CAGR where available, falling
+        back to a computed CAGR from yfinance annual EPS history. Growth is capped at 25% for Lynch
+        metrics and 15% for Graham metrics. If growth is negative it is floored at 1% so a
+        conservative valuation is still produced rather than skipping the ticker.
       </p>
+
+      <h3>Primary References</h3>
+      <ul>
+        <li>Peter Lynch, <em>One Up on Wall Street</em> (Simon &amp; Schuster, 1989)</li>
+        <li>Peter Lynch, <em>Beating the Street</em> (Simon &amp; Schuster, 1993)</li>
+        <li>Benjamin Graham, <em>The Intelligent Investor</em>, revised edition (Harper &amp; Row, 1973)</li>
+      </ul>
     </section>
 
   </main>

@@ -355,15 +355,15 @@ def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     m["FV_PEG_Con"]    = round(eps * 0.8 * g, 2)            # conservative (PEG=0.8)
     m["FV_GplusD"]     = round(eps * (g + dy), 2)           # G+D method
 
-    # Category
-    if g < 5:
+    # Category — thresholds per Lynch's One Up on Wall Street (Ch. 8)
+    if g < 10:
         cat = "Slow"
-    elif g <= 12:
+    elif g <= 20:
         cat = "Stalwart"
     else:
         cat = "Fast"
     m["Lynch_Category"] = cat
-    m["Lynch_BuyPrice"] = round(m["FV_PEG_Con"] * LYNCH_DISCOUNT[cat], 2)
+    m["Lynch_BuyPrice"] = round(m["FV_GplusD"] * LYNCH_DISCOUNT[cat], 2)
 
     # PEG status
     if m["PEG"] < LYNCH_PEG_CHEAP:
