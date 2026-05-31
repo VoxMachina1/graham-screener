@@ -31,7 +31,7 @@
 - [ ] **FE-04**: Header row is sticky (stays visible when scrolling vertically)
 - [ ] **FE-05**: Signal columns (Lynch_Status, Graham_Status, Defensive, Lynch_PEG_Band, Status_Combined) have traffic-light background colors (green/yellow/red) matching the existing `SIGNAL_COLORS` mapping
 - [ ] **FE-06**: Null/missing values display as `—` (em dash) rather than `NaN`, `None`, or blank
-- [ ] **FE-07**: Error rows (tickers that failed data fetching) are hidden by default with a toggle to reveal them
+- [x] **FE-07**: Error rows (tickers that failed data fetching) are hidden by default (no toggle — permanently hidden by design)
 - [ ] **FE-08**: Page shows a "Data as of [date]" freshness badge derived from `generated_at`
 - [ ] **FE-09**: A yellow stale-data warning banner appears if data is more than 3 calendar days old
 - [ ] **FE-10**: `results.json` is fetched with a cache-busting query parameter (`?v=${Date.now()}`) to bypass CDN caching
@@ -42,12 +42,6 @@
 - [ ] **FE-12**: Every column has a header filter appropriate to its data type: dropdown select for categorical columns (status, category, index membership), numeric input for numeric columns (score, price, PE, discount %, etc.)
 - [ ] **FE-13**: "Summary" / "Full" column preset toggle — Summary shows ~10 key signal columns, Full shows all columns
 - [ ] **FE-14**: Ticker text search box for quick symbol lookup (client-side, instant filter)
-
-### Frontend — Top 20 Panel
-
-- [ ] **FE-15**: A collapsible "Top 20 Buy Signals" panel appears above the main table
-- [ ] **FE-16**: Panel is open by default; collapse state is persisted in `localStorage`
-- [ ] **FE-17**: Clicking a ticker in the Top 20 panel scrolls to and highlights that row in the main table
 
 ### Documentation Page
 
@@ -66,10 +60,12 @@
 ## v2 Requirements (Deferred)
 
 - Advanced numeric range filters (min/max sliders per column)
-- Historical run archiving (keep last N runs of results.json)
+- Historical results archive — store one `results.json` snapshot per month, rolling 5-year window; display on a separate archive page or via a date picker on the dashboard
+- Column header auto-sizing — column widths should dynamically fit the header label text so no headers are clipped on initial load
 - Dark mode toggle
 - Column visibility picker (beyond Summary/Full preset)
 - Mobile-optimized layout (horizontal scroll is acceptable for v1)
+- Methodology sourcing — add citations to original Lynch/Graham writings and interviews for each criterion (e.g. One Up on Wall Street for Lynch PEG thresholds, The Intelligent Investor chapters for Graham formulas)
 
 ---
 
@@ -106,7 +102,7 @@
 | FE-04 | Phase 3 | Pending | Sticky header |
 | FE-05 | Phase 3 | Pending | Traffic-light color coding |
 | FE-06 | Phase 3 | Pending | Null display as em dash |
-| FE-07 | Phase 3 | Pending | Error rows hidden by default |
+| FE-07 | Phase 3 | Complete | Error rows hidden by default (no toggle by design) |
 | FE-08 | Phase 3 | Pending | Data freshness badge |
 | FE-09 | Phase 3 | Pending | Stale-data warning banner |
 | FE-10 | Phase 3 | Pending | Cache-busting fetch |
@@ -114,9 +110,9 @@
 | FE-12 | Phase 3 | Pending | Per-column header filters |
 | FE-13 | Phase 3 | Pending | Summary/Full column preset |
 | FE-14 | Phase 3 | Pending | Ticker text search |
-| FE-15 | Phase 3 | Pending | Top 20 collapsible panel |
-| FE-16 | Phase 3 | Pending | Top 20 collapse state persisted |
-| FE-17 | Phase 3 | Pending | Top 20 ticker click scrolls to row |
+| FE-15 | — | Removed | Top 20 panel — descoped before execution |
+| FE-16 | — | Removed | Top 20 localStorage — descoped before execution |
+| FE-17 | — | Removed | Top 20 click-to-scroll — descoped before execution |
 | DOC-01 | Phase 3 | Complete | methodology.html |
 | DOC-02 | Phase 3 | Complete | Two-item nav header |
 | CLN-01 | Phase 4 | Pending | Remove push_to_gsheets — only after Phase 3 verified |

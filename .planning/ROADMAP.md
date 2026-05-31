@@ -47,18 +47,17 @@ Plans:
 - [ ] 02-01-PLAN.md — Add write_json() to stock_screener.py and verify end-to-end via workflow_dispatch
 
 ### Phase 3: Interactive Dashboard
-**Goal:** A user opening the GitHub Pages URL sees a fully functional, color-coded, filterable Lynch/Graham dashboard with a Top 20 panel and a linked methodology page
+**Goal:** A user opening the GitHub Pages URL sees a fully functional, color-coded, filterable Lynch/Graham dashboard with a linked methodology page
 **Mode:** mvp
 **Depends on:** Phase 2
-**Requirements:** FE-01, FE-02, FE-03, FE-04, FE-05, FE-06, FE-07, FE-08, FE-09, FE-10, FE-11, FE-12, FE-13, FE-14, FE-15, FE-16, FE-17, DOC-01, DOC-02
+**Requirements:** FE-01, FE-02, FE-03, FE-04, FE-05, FE-06, FE-07, FE-08, FE-09, FE-10, FE-11, FE-12, FE-13, FE-14, DOC-01, DOC-02
 **UI hint:** yes
 **Success Criteria** (what must be TRUE):
   1. The dashboard loads from the Pages URL, shows a "Data as of [date]" freshness badge, and displays a yellow stale-data banner if data is more than 3 days old
   2. The Tabulator table renders all screener columns sorted by Score descending, with the Ticker column frozen, sticky header, nulls shown as `—`, and error rows hidden by default
-  3. Signal columns (Lynch_Status, Graham_Status, Defensive, Lynch_PEG_Band, Status_Combined) show green/yellow/red background colors matching the existing `SIGNAL_COLORS` mapping
+  3. Signal columns (Lynch_Status, Graham_Status, Defensive, Lynch_PEG_Band, Lynch_PEG_Status, Lynch_PEGY_Status) show green/yellow/red background colors matching the SIGNAL_COLORS mapping
   4. "Buy Signals Only" toggle, per-column header filters, ticker search box, and Summary/Full column preset toggle all work client-side with no page reload
-  5. The collapsible Top 20 panel is open by default, persists its state in `localStorage`, and clicking a ticker scrolls to and highlights that row in the main table
-  6. `methodology.html` presents the Lynch/Graham documentation and the two-item nav header links correctly between Dashboard and Methodology
+  5. `methodology.html` presents the Lynch/Graham documentation and the two-item nav header links correctly between Dashboard and Methodology
 **Plans:** 2/2 plans complete
 
 ### Phase 4: Google & Tiingo Cleanup

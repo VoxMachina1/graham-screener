@@ -81,9 +81,11 @@ None. Phase 1 resolved all known blockers:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | v2 | Advanced numeric range filter sliders | Deferred | Roadmap init |
-| v2 | Historical run archiving (last N runs) | Deferred | Roadmap init |
+| v2 | Historical results archive — 1 snapshot/month, rolling 5-year window; accessible via dashboard date picker or archive page | Deferred | Phase 3 |
+| v2 | Column header auto-sizing — dynamically fit column widths to header label text so no headers are clipped on load | Deferred | Phase 3 |
 | v2 | Dark mode toggle | Deferred | Roadmap init |
 | v2 | Column visibility picker | Deferred | Roadmap init |
+| v2 | Methodology sourcing — add citations to original Lynch/Graham writings and interviews for each criterion on methodology.html (e.g. One Up on Wall Street for Lynch PEG thresholds, The Intelligent Investor chapters for Graham formulas and defensive checklist) | Deferred | Phase 3 |
 
 ## Session Continuity
 
