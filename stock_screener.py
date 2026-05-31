@@ -293,6 +293,8 @@ def get_combined_data(ticker: str) -> dict:
     # ── EPS growth — Finnhub pre-calculated CAGR ────────────────────
     # Prefer 5Y, fall back to 3Y, then compute from history
     growth_pct = _safe_float(fh.get("epsGrowth5Y") or fh.get("epsGrowth3Y"))
+    if growth_pct is not None:
+        growth_pct = round(growth_pct * 100, 4)  # Finnhub returns decimal fraction (0.15 = 15%)
 
     # ── Dividends per share ─────────────────────────────────────────
     ttm_dps = _safe_float(fh.get("dividendPerShareAnnual") or fh.get("dividendPerShareTTM")) or 0.0
@@ -574,6 +576,9 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
 
     # ── EPS ─────────────────────────────────────────────────────────
     eps = fund["ttm_eps"]
+    # BRK-B: yfinance/Finnhub report Class A equivalent EPS; scale down to Class B
+    if ticker in ("BRK-B", "BRK.B") and eps is not None:
+        eps = eps / 1500.0
     if not eps or eps <= 0:
         log.warning(f"{ticker}: no usable EPS")
         row["Error"] = "No EPS"
@@ -582,8 +587,9 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["EPS_Annual"] = str([round(e, 2) for e in fund["annual_eps"] if e is not None and e == e])
 
     # ── Dividend yield ───────────────────────────────────────────────
-    dy = fund["ttm_dps"] or 0.0
-    row["DivYield_Pct"] = round(float(dy), 2)
+    dps = fund["ttm_dps"] or 0.0
+    dy = round((float(dps) / float(price)) * 100, 4) if price and float(dps) > 0 else 0.0
+    row["DivYield_Pct"] = round(dy, 2)
 
     # ── Growth — use Finnhub 5Y CAGR, fall back to computed CAGR ────
     g = fund["growth_pct"]
