@@ -266,6 +266,10 @@ def get_combined_data(ticker: str) -> dict:
 
     # ── Current EPS — Finnhub first, yfinance history as fallback ───
     ttm_eps = _safe_float(fh.get("epsAnnual") or fh.get("epsBasicExclExtraItemsAnnual"))
+    # BRK-B: Finnhub returns Class A equivalent EPS; scale to Class B before falling back.
+    # yfinance already reports per-Class-B-share EPS, so the fallback needs no scaling.
+    if ticker in ("BRK-B", "BRK.B") and ttm_eps is not None:
+        ttm_eps = ttm_eps / 1500.0
     if not ttm_eps and yf_data["annual_eps"]:
         valid = [e for e in yf_data["annual_eps"] if e is not None and e == e]
         ttm_eps = valid[-1] if valid else None
@@ -555,9 +559,6 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
 
     # ── EPS ─────────────────────────────────────────────────────────
     eps = fund["ttm_eps"]
-    # BRK-B: yfinance/Finnhub report Class A equivalent EPS; scale down to Class B
-    if ticker in ("BRK-B", "BRK.B") and eps is not None:
-        eps = eps / 1500.0
     if not eps or eps <= 0:
         log.warning(f"{ticker}: no usable EPS")
         row["Error"] = "No EPS"

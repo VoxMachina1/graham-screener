@@ -79,12 +79,14 @@ None. Phase 1 resolved all known blockers:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
+| bug | Formula audit — Buy Price is visibly wrong across all tickers, calling all Lynch/Graham math into question. Audit every formula implementation against source definitions (Lynch PEG/PEGY buy price, Graham VA/VB/FV, combined score) and add a spot-check fixture for at least one ticker with known manually-verified values. | Deferred | 2026-05-31 |
+| bug | BRK-B data sourcing — audit complete (2026-06-02). Root causes found and fixed: (1) `/1500` EPS scaling was applied unconditionally in process_ticker(), including to yfinance fallback EPS which is already in Class B terms — fixed by moving scaling into get_combined_data() immediately after the Finnhub fetch. (2) results.json was stale (generated 13 min before the GROWTH_CAP fix commit). All other fields (price, P/B, market cap, current_ratio, debt_equity) confirmed correct. Annual EPS from yfinance confirmed to be in Class B terms. Finnhub growth (1179%) is garbage data capped at 25% by existing GROWTH_CAP — growth signal for BRK-B remains unreliable due to GAAP EPS volatility from mark-to-market. | Fixed | 2026-06-02 |
 | v2 | Advanced numeric range filter sliders | Deferred | Roadmap init |
 | v2 | Historical results archive — 1 snapshot/month, rolling 5-year window; accessible via dashboard date picker or archive page | Deferred | Phase 3 |
-| v2 | Column header auto-sizing — dynamically fit column widths to header label text so no headers are clipped on load | Deferred | Phase 3 |
 | v2 | Dark mode toggle | Deferred | Roadmap init |
 | v2 | Column visibility picker | Deferred | Roadmap init |
 | v2 | Methodology sourcing — add citations to original Lynch/Graham writings and interviews for each criterion on methodology.html (e.g. One Up on Wall Street for Lynch PEG thresholds, The Intelligent Investor chapters for Graham formulas and defensive checklist) | Deferred | Phase 3 |
+| v2 | BRK-B share class ratio — config-driven /1500 scaling mechanism for non-standard tickers (Class B shares, ADRs). Blocked on BRK-B data sourcing bug above. | Deferred | Phase 4 |
 
 ## Session Continuity
 
