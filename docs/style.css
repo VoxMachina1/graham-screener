@@ -185,7 +185,7 @@ nav.main-nav {
 }
 
 /* ── F: Table container ────────────────────────────────────────────────── */
-#table-container { overflow: hidden; height: calc(100vh - 140px); }
+#table-container { overflow-y: hidden; height: calc(100vh - 140px); }
 #data-table { margin: 0; }
 
 /* ── G: Methodology page ───────────────────────────────────────────────── */
