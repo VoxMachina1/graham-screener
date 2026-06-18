@@ -69,7 +69,7 @@ Exceptions:
 - Pill button: padding 0.3rem 0.85rem, border-radius 20px — use these exact values for the 10/25 toggle on top.html
 - Nav link: padding 0.3rem 0.7rem, border-radius 4px — use exact values when building shared nav in app.js
 - Toolbar separator: 1px wide, 24px tall — match on top.html if toolbar pattern used
-- Score badge / pillar sub-score chips: use 4px 8px padding, border-radius 4px (derived from existing card/badge pattern)
+- Score badge / pillar sub-score chips / trap badge: padding 4px 8px, border-radius 4px (on the 4px grid)
 
 ---
 
@@ -77,13 +77,13 @@ Exceptions:
 
 | Role | Size | Weight | Line Height | Font | Usage |
 |------|------|--------|-------------|------|-------|
-| Body / table cell | 13.1px (0.82rem) | 400 | 1.5 | JetBrains Mono | Tabulator cell content, toolbar controls, pill buttons |
-| Label / secondary | 12.5px (0.78rem) | 400 | 1.5 | System sans-serif | Freshness badge, toolbar labels, nav subordinate text |
+| Body / label / secondary | 13.1px (0.82rem) | 400 | 1.5 | JetBrains Mono / System sans-serif | Tabulator cells, toolbar labels, freshness badge, pill buttons, pillar chip values, badge values |
 | Nav / tab | 14.4px (0.9rem) | 400 (600 when active) | 1.3 | System sans-serif | Nav links, tab buttons |
 | Heading / site title | 16px (1rem) | 600 | 1.2 | System sans-serif | Site title in header |
-| Sub-heading | 19.2px (1.2rem) | 600 | 1.2 | System sans-serif | Methodology panel h2 |
 
 Notes:
+- 0.78rem (label) and 0.82rem (body) were 0.6px apart — consolidated to 0.82rem. No perceptible visual difference.
+- 1.2rem (methodology h2) is used only in the pre-existing methodology.html and is NOT new Phase 5 work. It remains in style.css but is out of scope for this design contract.
 - Only 2 weights in use: 400 (regular) and 600 (semibold). Do not introduce 500 or 700 in new UI elements.
 - JetBrains Mono is already loaded via Google Fonts CDN in style.css — reuse, do not reload in top.html. Load it from style.css which top.html shares.
 - top.html inherits style.css — all font rules apply automatically.
@@ -219,7 +219,7 @@ Pillar sub-score chip:
 - Display: inline-block
 - Background: `#434c5e` (Polar Night 2)
 - Color: `#d8dee9` (Snow Storm 0)
-- Padding: 2px 8px
+- Padding: 4px 8px
 - Border-radius: 4px
 - Font-size: 0.82rem (matches table cell)
 - Font-family: JetBrains Mono (numeric values — consistent with table cells)
@@ -227,7 +227,7 @@ Pillar sub-score chip:
 
 OverallScore badge:
 - Display: inline-block
-- Padding: 2px 10px
+- Padding: 4px 8px
 - Border-radius: 4px
 - Font-weight: 600
 - Font-size: 0.82rem
@@ -238,8 +238,8 @@ Value-trap badge:
 - Background: `#bf616a`
 - Color: `#eceff4`
 - Font-weight: 600
-- Font-size: 0.75rem
-- Padding: 2px 6px
+- Font-size: 0.82rem
+- Padding: 4px 8px
 - Border-radius: 3px
 - Positioned inline after the OverallScore badge on Row 1
 - Never hidden — if present, always visible (row is still shown, not suppressed)
@@ -362,8 +362,8 @@ No new CSS files. All Phase 5 styles live in the existing `style.css`.
 - [ ] Dimension 1 Copywriting: PASS
 - [ ] Dimension 2 Visuals: PASS
 - [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
+- [ ] Dimension 4 Typography: pending re-check (fixed: consolidated to 3 sizes, removed 1.2rem, aligned badge to 0.82rem)
+- [ ] Dimension 5 Spacing: pending re-check (fixed: new badge/chip paddings set to 4px 8px — on 4px grid)
 - [ ] Dimension 6 Registry Safety: PASS
 
 **Approval:** pending
