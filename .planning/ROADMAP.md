@@ -4,6 +4,8 @@
 
 A brownfield output-layer swap: replace Google Sheets push with a JSON writer, wire it into GitHub Actions, and publish a static interactive dashboard on GitHub Pages. The Python pipeline is already working. The work is sequenced so Google Sheets remains a safety net until the new pipeline is confirmed live and verified end-to-end.
 
+**Milestone v2.0 — Methodology Expansion & Scoring (Phases 5–7):** Move the screener from binary Lynch/Graham buy-signals to a multi-factor, absolute 0–100 ranking (4-pillar composite: Value/Quality/Growth/Safety), add new valuation signals (distance-from-low, FCF yield, EV/EBIT, Piotroski, Altman, forward + reverse DCF), and ship dedicated Top-Picks and Stats pages plus periodic historic snapshots. Phases follow a research-prescribed, dependency-forced ordering: fix the Buy Price denominator first, build the composite from existing metrics behind an interim trap-gate, then layer in cheap factors + sector, then the heavy distress/DCF signals.
+
 ## Phases
 
 **Phase Numbering:**
@@ -12,10 +14,18 @@ A brownfield output-layer swap: replace Google Sheets push with a JSON writer, w
 
 Decimal phases appear between their surrounding integers in numeric order.
 
+### Milestone v1.0 — GitHub Pages Migration (complete)
+
 - [x] **Phase 1: Security & Pipeline Prerequisites** - Fix the hardcoded API key, audit git history, and configure the Actions workflow so the repo is safe to publish and the CI commit chain is correct
 - [x] **Phase 2: JSON Output Pipeline** - Replace `push_to_gsheets()` with a JSON writer and verify the full Actions → commit → Pages publish loop with `workflow_dispatch`
 - [x] **Phase 3: Interactive Dashboard** - Build the complete GitHub Pages frontend: Tabulator table with all columns, color coding, filters, Top 20 panel, methodology page, and nav (completed 2026-05-31)
 - [x] **Phase 4: Google & Tiingo Cleanup** - Remove all Google dependencies and dead Tiingo config from the codebase now that the new pipeline is confirmed (completed 2026-05-31)
+
+### Milestone v2.0 — Methodology Expansion & Scoring
+
+- [ ] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav
+- [ ] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
+- [ ] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs
 
 ## Phase Details
 
@@ -72,14 +82,54 @@ Plans:
   4. A `workflow_dispatch` run after cleanup completes successfully with no import errors or missing-variable failures
 **Plans:** TBD
 
+### Phase 5: Score Foundation + Public Top-N
+**Goal:** The screener ranks stocks by an absolute 0–100 `OverallScore` (4-pillar Value/Quality/Growth/Safety) built on a corrected, hand-verified Buy Price, and a public `docs/top.html` page surfaces the Top 10/25 — with every cheap-but-dying stock caught by an interim value-trap gate before it can top a public list. This is the locked first executable phase: self-contained, built entirely from metrics that already exist, no new data fetches.
+**Depends on:** Phase 4 (clean pipeline, no vestigial output code)
+**Requirements:** FIX-01, FIX-02, SCORE-01, SCORE-02, SCORE-03, SCORE-04, SCORE-05, SCORE-06, SCORE-07, SCORE-08, TRAP-01, TRAP-02, PAGE-01, PAGE-03, PAGE-04
+**Success Criteria** (what must be TRUE):
+  1. The Buy Price root cause is diagnosed and fixed across Lynch buy price and Graham fair value; a committed spot-check fixture for at least one hand-verified ticker (e.g. JNJ/KO) passes, and `Lynch_Discount_Pct` / `Graham_Discount_Pct` read as sane before any pillar consumes them
+  2. Each row carries an `OverallScore` (0–100) that decomposes into Value/Quality/Growth/Safety pillar sub-scores, exposed in `results.json` as flat columns plus a nested `scores` object and surfaced in the UI; `OverallScore` is the primary sort key, replacing `CombinedScore`
+  3. Raw metrics map to sub-scores via version-controlled absolute thresholds (piecewise-linear bands, yield-based ones rate-relativized to the live FRED AAA yield) with both-tail winsorization, so no single glitch (e.g. a 1179% growth episode) can dominate a sub-score
+  4. Missing metrics are averaged over present metrics within a pillar and a per-row coverage flag is emitted; a missing Safety input is treated as "unknown," never "safe"; correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
+  5. `docs/top.html` shows the Top 10/25 (toggle) ranked by `OverallScore` with pillar sub-scores and headline signals, every row carries a value-trap badge driven by an interim gate (debt/equity, current ratio, EPS stability, negative FCF), and the shared `docs/app.js` powers fetch/format/color/freshness across Dashboard, Top Picks, and Methodology nav links
+**Plans:** TBD
+**UI hint:** yes
+
+### Phase 6: Cheap Factors + Sector
+**Goal:** The GICS sector field is threaded through every row (a prerequisite for Phase 7's DCF/distress guards), and the high-evidence factors that mostly already live in the discarded Finnhub `metric=all` bundle — plus one new 5-year price-history fetch — deepen the Value/Quality/Safety pillars at near-zero new I/O.
+**Depends on:** Phase 5 (composite engine + thresholds + winsorization contract must exist to fold new factors into)
+**Requirements:** SECTOR-01, SIGNAL-01, SIGNAL-02, SIGNAL-03, SIGNAL-04, SIGNAL-05, SIGNAL-06, SIGNAL-07
+**Success Criteria** (what must be TRUE):
+  1. Each row carries a `Sector` field fetched per ticker (GICS) and threaded through the pipeline, ready to gate the Phase 7 DCF/distress signals
+  2. New price-based signals appear per ticker: distance below 52-week high / above 52-week low (%), distance above 5-year low (%), and weeks-since-52w-low / weeks-since-5y-low recency — driven by a new 5-year history fetch
+  3. New fundamental factors appear per ticker: FCF yield (FCF / market cap), EV/EBIT + earnings yield (EBIT/EV), ROIC as an absolute Quality input (not a Greenblatt rank-sum), and shareholder yield (dividend + net buyback) with a low-coverage flag where share-count data is sparse
+  4. Each new metric is clamped/winsorized as it is added and folded into the appropriate pillar via the Phase 5 threshold engine, so the composite deepens without any single new factor able to dominate
+**Plans:** TBD
+
+### Phase 7: Distress Signals, DCF, Stats & Snapshots
+**Goal:** The heaviest fetches land last — Piotroski F-Score and Altman Z'' upgrade the interim trap-gate into the real Safety-pillar driver, forward + reverse DCF give per-stock intrinsic value and an expectations gap, a per-metric sector applicability matrix keeps sector-invalid signals out of the score, and `stats.html` plus committed historic snapshots make the universe observable and comparable over time.
+**Depends on:** Phase 6 (the `Sector` field gates DCF/EV-EBIT/Altman/Piotroski applicability; the finalized schema makes snapshots comparable)
+**Requirements:** SIGNAL-08, SIGNAL-09, TRAP-03, DCF-01, DCF-02, DCF-03, SECTOR-02, PAGE-02, DATA-01, DATA-02, DATA-03, METH-01
+**Success Criteria** (what must be TRUE):
+  1. Piotroski F-Score (0–9, from two years of statements) and Altman Z'' (with distress zones, used as a penalty/veto) are computed per ticker and replace/augment the interim gate as the Safety-pillar driver
+  2. Forward two-stage DCF intrinsic value + discount % and reverse-DCF implied-vs-actual-growth gap appear per ticker, sector-guarded (financials excluded, cyclicals flagged), asserting terminal-growth < discount-rate, with the bounded reverse solver emitting `None` on non-convergence — never a silent default
+  3. A per-metric sector applicability matrix governs which signals are valid per sector; invalid signals (e.g. DCF/EV-EBIT/Altman/Piotroski for financials) are treated as missing, never zero
+  4. `docs/stats.html` presents the universe overview — score distribution, buy-signal counts, sector breakdown, and data-coverage stats — and `methodology.html` is updated to document the new signals, the 4-pillar absolute scoring, the thresholds, and the sector guards
+  5. The Actions workflow commits periodic (weekly/monthly) snapshots of `results.json` under `docs/data/snapshots/` (with the `!docs/data/snapshots/*.json` `.gitignore` exception and the reused min-row guard so no empty/partial snapshot lands), and an optional 30-day fundamentals cache bounds runtime/rate-limit for the heavy statement fetches
+**Plans:** TBD
+**UI hint:** yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Security & Pipeline Prerequisites | 1/1 | Complete | 2026-05-30 |
 | 2. JSON Output Pipeline | 1/1 | Complete | 2026-05-30 |
-| 3. Interactive Dashboard | 2/2 | Complete    | 2026-05-31 |
+| 3. Interactive Dashboard | 2/2 | Complete | 2026-05-31 |
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
+| 5. Score Foundation + Public Top-N | 0/? | Not started | - |
+| 6. Cheap Factors + Sector | 0/? | Not started | - |
+| 7. Distress Signals, DCF, Stats & Snapshots | 0/? | Not started | - |
