@@ -1,16 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: Methodology Expansion & Scoring
+milestone_name: — Methodology Expansion & Scoring
 status: planning
-last_updated: "2026-06-17T23:10:00.000Z"
-last_activity: 2026-06-17
+stopped_at: Phase 5 context gathered
+last_updated: "2026-06-18T22:11:54.690Z"
+last_activity: 2026-06-17 — v2.0 roadmap created (Phases 5–7), 35 requirements mapped
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 5
+  percent: 57
 ---
 
 # Project State
@@ -30,6 +31,7 @@ Status: Roadmap created for v2.0; ready to plan Phase 5
 Last activity: 2026-06-17 — v2.0 roadmap created (Phases 5–7), 35 requirements mapped
 
 Milestone v1.0 (Phases 1–4) complete. v2.0 adds three phases (5, 6, 7) under a research-prescribed, dependency-forced ordering:
+
 - **Phase 5 (A):** Buy Price fix → 4-pillar composite from existing metrics → interim trap-gate → public Top-N (`top.html`, `app.js`, nav). Self-contained, no new data fetches.
 - **Phase 6 (B):** GICS sector field + cheap high-evidence factors (52w/5y distance + recency, FCF yield, EV/EBIT, ROIC, shareholder yield), mostly mined from the already-fetched Finnhub bundle + one new 5y history fetch.
 - **Phase 7 (C):** Piotroski/Altman distress signals, forward + reverse DCF, sector applicability matrix, `stats.html`, snapshots + cache, methodology refresh.
@@ -95,7 +97,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-17T23:10:00.000Z
-Stopped at: v2.0 roadmap created — Phases 5–7 defined, 35 requirements mapped to phases (100% coverage)
-Resume file: .planning/ROADMAP.md
+Last session: 2026-06-18T22:11:54.682Z
+Stopped at: Phase 5 context gathered
+Resume file: .planning/phases/05-score-foundation-public-top-n/05-CONTEXT.md
 Next: `/gsd-plan-phase 5`
