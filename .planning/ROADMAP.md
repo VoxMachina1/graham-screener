@@ -112,7 +112,7 @@ Plans:
 **Plans:** 3 plans (Wave 1 -> 2 -> 3)Plans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md - Buy Price audit + KO fixture + negative-input routing + FCF passthrough (FIX-01/02)
+- [x] 05-01-PLAN.md - Buy Price audit + KO fixture + negative-input routing + FCF passthrough (FIX-01/02) — Complete 2026-06-19
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -165,6 +165,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. JSON Output Pipeline | 1/1 | Complete | 2026-05-30 |
 | 3. Interactive Dashboard | 2/2 | Complete | 2026-05-31 |
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
-| 5. Score Foundation + Public Top-N | 0/3 | Planned | - |
+| 5. Score Foundation + Public Top-N | 1/3 | Executing | - |
 | 6. Cheap Factors + Sector | 0/? | Not started | - |
 | 7. Distress Signals, DCF, Stats & Snapshots | 0/? | Not started | - |

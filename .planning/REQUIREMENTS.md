@@ -61,8 +61,8 @@
 
 ### Formula Correctness (prerequisite — must precede scoring)
 
-- [ ] **FIX-01**: The deferred "Buy Price visibly wrong" formula bug is diagnosed (root cause identified) and corrected across Lynch buy price and Graham fair value, with a spot-check fixture for at least one hand-verified ticker
-- [ ] **FIX-02**: The corrected discount fields (`Lynch_Discount_Pct`, `Graham_Discount_Pct`) are confirmed sane before any pillar consumes them
+- [x] **FIX-01**: The deferred "Buy Price visibly wrong" formula bug is diagnosed (root cause identified) and corrected across Lynch buy price and Graham fair value, with a spot-check fixture for at least one hand-verified ticker
+- [x] **FIX-02**: The corrected discount fields (`Lynch_Discount_Pct`, `Graham_Discount_Pct`) are confirmed sane before any pillar consumes them
 
 ### Composite Scoring Engine
 
@@ -186,8 +186,8 @@
 | CLN-02 | Phase 4 | Pending | Remove gspread/google-auth |
 | CLN-03 | Phase 4 | Pending | Remove GSHEET_* env vars |
 | CLN-04 | Phase 4 | Pending | Remove dead Tiingo config |
-| FIX-01 | Phase 5 | Pending | Buy Price bug — diagnose + fix + fixture; blocks composite |
-| FIX-02 | Phase 5 | Pending | Confirm discount fields sane before any pillar consumes them |
+| FIX-01 | Phase 5 | Complete 2026-06-19 | Buy Price bug — root cause documented (VB conservative base PE=7); KO fixture passing |
+| FIX-02 | Phase 5 | Complete 2026-06-19 | KO fixture confirms discounts sane; FIX-02 gate passed; Plan 02 may proceed |
 | SCORE-01 | Phase 5 | Pending | 4-pillar absolute OverallScore (Value/Quality/Growth/Safety) |
 | SCORE-02 | Phase 5 | Pending | Absolute-threshold piecewise-linear band mapping (not ranks) |
 | SCORE-03 | Phase 5 | Pending | Winsorize/clamp both tails before pillar aggregation |

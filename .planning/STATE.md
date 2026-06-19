@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Methodology Expansion & Scoring
-status: planning
-stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-06-19T04:13:32.773Z"
-last_activity: 2026-06-17 — v2.0 roadmap created (Phases 5–7), 35 requirements mapped
+status: executing
+stopped_at: Phase 5 Plan 01 complete
+last_updated: "2026-06-19T20:08:00Z"
+last_activity: 2026-06-19 -- Phase 5 Plan 01 executed (KO fixture + WORST_DISCOUNT + FCF passthrough)
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 57
+  total_plans: 9
+  completed_plans: 6
+  percent: 62
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-17)
 
 **Core value:** A public, shareable URL that shows today's Lynch/Graham buy signals — no Google account, no friction, just open the link.
-**Current focus:** Phase 5 — Score Foundation + Public Top-N (roadmap just created, awaiting planning)
+**Current focus:** Phase 5 — Score Foundation + Public Top-N
 
 ## Current Position
 
-Phase: 5 — Score Foundation + Public Top-N (not started)
-Plan: —
-Status: Roadmap created for v2.0; ready to plan Phase 5
-Last activity: 2026-06-17 — v2.0 roadmap created (Phases 5–7), 35 requirements mapped
+Phase: 5 (Score Foundation + Public Top-N) — EXECUTING
+Plan: 2 of 3 (Plan 01 complete)
+Status: Executing Phase 5
+Last activity: 2026-06-19 -- Phase 5 Plan 01 complete; KO fixture passing; WORST_DISCOUNT and fcf_per_share ready for Plan 02
 
 Milestone v1.0 (Phases 1–4) complete. v2.0 adds three phases (5, 6, 7) under a research-prescribed, dependency-forced ordering:
 
@@ -77,7 +77,7 @@ None.
 
 ### Blockers/Concerns
 
-- **Buy Price root cause not yet diagnosed** — STATE.md only records "visibly wrong across all tickers." Phase 5 task 1 must diagnose the root cause (sign/inversion, target-vs-buy-below) and verify against a hand-computed fixture ticker BEFORE the composite consumes any discount field. Blocking for the whole milestone.
+- **Buy Price root cause diagnosed and documented (Phase 5 Plan 01)** — KO fixture confirms formulas are internally correct. Root cause: VB formula uses conservative base PE=7 (not from Graham's book), producing low fair values for quality franchises. Documented in audit comments in graham_metrics(). KO fixture committed at tests/test_valuation_fixture.py. FIX-02 gate passed — Plan 02 may proceed.
 - **Finnhub free-tier field coverage unconfirmed** — `freeCashFlowAnnual`, EV/EBIT inputs, `roicTTM`, `roeAnnual` populate inconsistently across the 550-ticker universe. Validate coverage in Phase 6 before scoring math depends on these fields (average-over-present handles gaps, but weighting needs real coverage).
 - **Absolute threshold calibration has no empirical anchor** (no backtest) — keep thresholds as loud config constants and monitor the distribution in `stats.html` (Phase 7); expect tuning iterations.
 
@@ -97,7 +97,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-18T22:32:54.887Z
-Stopped at: Phase 5 UI-SPEC approved
-Resume file: .planning/phases/05-score-foundation-public-top-n/05-UI-SPEC.md
-Next: `/gsd-plan-phase 5`
+Last session: 2026-06-19T20:08:00Z
+Stopped at: Phase 5 Plan 01 complete
+Resume file: .planning/phases/05-score-foundation-public-top-n/05-01-SUMMARY.md
+Next: `/gsd-execute-phase 5` (Plan 02 — composite scoring engine)
