@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Milestone v2.0 — Methodology Expansion & Scoring
 
-- [ ] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav
+- [x] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav (completed 2026-06-19)
 - [ ] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
 - [ ] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs
 
@@ -120,7 +120,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-03-PLAN.md - docs/app.js + docs/top.html (Top 10/25, trap badge) + dashboard score columns + 3-link nav (PAGE-01/03/04, TRAP-02)
+- [x] 05-03-PLAN.md - docs/app.js + docs/top.html (Top 10/25, trap badge) + dashboard score columns + 3-link nav (PAGE-01/03/04, TRAP-02) — Complete 2026-06-19
 
 **UI hint:** yes
 
@@ -165,6 +165,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. JSON Output Pipeline | 1/1 | Complete | 2026-05-30 |
 | 3. Interactive Dashboard | 2/2 | Complete | 2026-05-31 |
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
-| 5. Score Foundation + Public Top-N | 2/3 | Executing | - |
+| 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
 | 6. Cheap Factors + Sector | 0/? | Not started | - |
 | 7. Distress Signals, DCF, Stats & Snapshots | 0/? | Not started | - |
