@@ -144,6 +144,18 @@
       { title: "Defensive",    field: "DefensiveLabel", sorter: "string",
         formatter: makeSignalFormatter("DefensiveLabel"), ...drop },
 
+      // ── Overall Score + pillar sub-scores (Phase 5) ──────────────────────
+      { title: "Overall Score", field: "OverallScore",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Value",         field: "score_value",   sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Quality",       field: "score_quality", sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Growth",        field: "score_growth",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Safety",        field: "score_safety",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Trap?",         field: "is_trap",       sorter: "boolean",
+        formatter: function(cell) { return cell.getValue() ? "Yes" : "—"; },
+        headerFilter: "list",
+        headerFilterParams: { values: { "true": "Yes", "false": "—", "": "All" }, clearable: true }
+      },
+
       // ── Combined ──────────────────────────────────────────────────────────
       { title: "Score",        field: "CombinedScore",  sorter: "number", formatter: numFmt(2), ...num },
 
@@ -160,7 +172,7 @@
 
   // ── Summary preset columns (D-01 — locked) ────────────────────────────────
   const SUMMARY_COLS = new Set([
-    "Ticker", "Price", "CombinedScore",
+    "Ticker", "Price", "OverallScore", "is_trap", "CombinedScore",
     "Lynch_Lynch_Status", "Lynch_Lynch_Score", "Lynch_Lynch_BuyPrice",
     "Lynch_PEG_Status", "Lynch_PEGY_Status",
     "Graham_Graham_Status", "Graham_Graham_Discount_Pct", "Graham_Graham_FV",
@@ -201,7 +213,7 @@
         layout: "fitDataTable",
         height: "calc(100vh - 140px)",
         renderVertical: "virtual",
-        initialSort: [{ column: "CombinedScore", dir: "desc" }],
+        initialSort: [{ column: "OverallScore", dir: "desc" }],
         columns: cols,
       });
 
