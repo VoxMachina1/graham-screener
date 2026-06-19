@@ -72,6 +72,12 @@ GRAHAM_WATCH        = 0.95
 # Category-specific Lynch buy discount factors
 LYNCH_DISCOUNT = {"Slow": 0.75, "Stalwart": 0.80, "Fast": 0.70}
 
+# Sentinel discount for tickers with negative/zero growth or EPS that breaks
+# the Lynch/Graham formulas.  Plan 02's scorer maps this to sub-score 0 (worst).
+# The stock is RETAINED in the output and ranks at the bottom — it is NOT dropped.
+# Distinct from a genuine no-price/no-EPS fetch failure, which early-returns as Error.
+WORST_DISCOUNT = -999.0
+
 # ─────────────────────────────────────────────
 # LOGGING
 # ─────────────────────────────────────────────
@@ -296,6 +302,17 @@ def get_combined_data(ticker: str) -> dict:
     book_value_ps = _safe_float(fh.get("bookValuePerShareAnnual") or fh.get("bookValuePerShareQuarterly"))
     pb_ratio      = _safe_float(fh.get("pb"))
 
+    # ── FCF per share — read from already-fetched Finnhub bundle (D-04) ──
+    # No new HTTP request; reuses the metric=all bundle fetched above.
+    # Primary: freeCashFlowPerShareTTM; fallback: freeCashFlowPerShareAnnual.
+    # Field names are community-sourced [ASSUMED]; run diagnose_finnhub.py on
+    # the next live Actions run to confirm the exact key names in production.
+    # If both fields are absent, _safe_float returns None → Plan 02's trap gate
+    # runs on the other 3 inputs (D-01b: genuinely-missing path).
+    fcf_per_share = _safe_float(
+        fh.get("freeCashFlowPerShareTTM") or fh.get("freeCashFlowPerShareAnnual")
+    )
+
     return {
         "price":            price,
         "market_cap_b":     mkt_cap_b,
@@ -308,6 +325,7 @@ def get_combined_data(ticker: str) -> dict:
         "debt_equity":      debt_equity,
         "book_value_ps":    book_value_ps,
         "pb_ratio":         pb_ratio,
+        "fcf_per_share":    fcf_per_share,              # FCF sign for Plan 02 trap gate (D-04)
     }
 
 
@@ -601,13 +619,15 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         # Fallback: compute from yfinance EPS history
         g = compute_growth_5yr_cagr(fund["annual_eps"])
     if g is None:
+        # Truly absent growth data — no basis for valuation (D-01b: genuinely missing,
+        # distinct from a present-but-negative value which routes to WORST_DISCOUNT below).
         log.info(f"{ticker}: growth not computable, skipping valuation")
         row["Error"] = "Growth N/A"
         return row
     g = min(g, GROWTH_CAP)
-    if g <= 0:
-        log.info(f"{ticker}: negative/zero growth ({g:.1f}%), flooring to 1%")
-        g = 1.0
+    # D-01: negative/zero growth is present-but-terrible; do NOT floor or drop.
+    # lynch_metrics() will return {"error": ...} for g <= 0, which is intercepted
+    # below and routes to WORST_DISCOUNT so the ticker still ranks (at the bottom).
     row["Growth_g_Pct"] = round(g, 2)
     row["AAA_Yield"]    = aaa_yield
     row["MarketCap_B"]  = round(mkt_cap_b, 2) if mkt_cap_b else None
@@ -624,11 +644,20 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     eps_3yr_avg = sum(valid_eps[-3:]) / len(valid_eps[-3:]) if len(valid_eps) >= 3 else None
 
     # ── Lynch ───────────────────────────────────────────────────────
+    # D-01: if negative/zero EPS or growth causes an error-return, retain the row
+    # with WORST_DISCOUNT so it ranks at the bottom rather than being dropped.
     lm = lynch_metrics(price, eps, g, dy)
+    if "error" in lm:
+        log.info(f"{ticker}: Lynch formula error ({lm['error']}), routing to WORST_DISCOUNT")
+        lm = {"Lynch_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Lynch_{k}": v for k, v in lm.items()})
 
     # ── Graham ──────────────────────────────────────────────────────
+    # D-01: same sentinel routing for Graham error returns.
     gm = graham_metrics(price, eps, g, aaa_yield, pb)
+    if "error" in gm:
+        log.info(f"{ticker}: Graham formula error ({gm['error']}), routing to WORST_DISCOUNT")
+        gm = {"Graham_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Graham_{k}": v for k, v in gm.items()})
 
     # ── Graham defensive score ───────────────────────────────────────
