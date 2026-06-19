@@ -4,7 +4,7 @@ milestone: v2.0
 milestone_name: — Methodology Expansion & Scoring
 status: planning
 stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-06-18T22:32:54.895Z"
+last_updated: "2026-06-19T04:13:32.773Z"
 last_activity: 2026-06-17 — v2.0 roadmap created (Phases 5–7), 35 requirements mapped
 progress:
   total_phases: 7
