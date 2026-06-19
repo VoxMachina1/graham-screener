@@ -92,7 +92,11 @@ Plans:
   3. Raw metrics map to sub-scores via version-controlled absolute thresholds (piecewise-linear bands, yield-based ones rate-relativized to the live FRED AAA yield) with both-tail winsorization, so no single glitch (e.g. a 1179% growth episode) can dominate a sub-score
   4. Missing metrics are averaged over present metrics within a pillar and a per-row coverage flag is emitted; a missing Safety input is treated as "unknown," never "safe"; correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
   5. `docs/top.html` shows the Top 10/25 (toggle) ranked by `OverallScore` with pillar sub-scores and headline signals, every row carries a value-trap badge driven by an interim gate (debt/equity, current ratio, EPS stability, negative FCF), and the shared `docs/app.js` powers fetch/format/color/freshness across Dashboard, Top Picks, and Methodology nav links
-**Plans:** TBD
+**Plans:** 3 plans (Wave 1 -> 2 -> 3)
+Plans:
+- [ ] 05-01-PLAN.md - Buy Price audit + KO fixture + negative-input routing + FCF passthrough (FIX-01/02)
+- [ ] 05-02-PLAN.md - 4-pillar OverallScore engine + config constants + interim trap gate + JSON schema + sort swap (SCORE-01..08, TRAP-01)
+- [ ] 05-03-PLAN.md - docs/app.js + docs/top.html (Top 10/25, trap badge) + dashboard score columns + 3-link nav (PAGE-01/03/04, TRAP-02)
 **UI hint:** yes
 
 ### Phase 6: Cheap Factors + Sector
@@ -130,6 +134,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. JSON Output Pipeline | 1/1 | Complete | 2026-05-30 |
 | 3. Interactive Dashboard | 2/2 | Complete | 2026-05-31 |
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
-| 5. Score Foundation + Public Top-N | 0/? | Not started | - |
+| 5. Score Foundation + Public Top-N | 0/3 | Planned | - |
 | 6. Cheap Factors + Sector | 0/? | Not started | - |
 | 7. Distress Signals, DCF, Stats & Snapshots | 0/? | Not started | - |
