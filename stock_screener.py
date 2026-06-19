@@ -1042,11 +1042,61 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     )
     row.update(ds)
 
-    # ── Combined score ───────────────────────────────────────────────
+    # ── Combined score (retained column — D-02c) ─────────────────────
     row["CombinedScore"] = combined_score(
         lm.get("Lynch_Discount_Pct"),
         gm.get("Graham_Discount_Pct"),
     )
+
+    # ── Growth stability — fraction of years with positive EPS ───────
+    # Derived from annual_eps history (Open Question 2 from RESEARCH.md).
+    # Formula: count of positive-EPS years / total available years.
+    # None when fewer than 3 years available (D-01b: genuinely missing).
+    # This reuses the EPS_Stability computation pattern already present in
+    # graham_defensive_score rather than introducing a new formula.
+    valid_eps_hist = [e for e in fund["annual_eps"] if e is not None and e == e]
+    if len(valid_eps_hist) >= 3:
+        pos_years   = sum(1 for e in valid_eps_hist if e > 0)
+        growth_stability = pos_years / len(valid_eps_hist)
+    else:
+        growth_stability = None
+
+    # ── Trap gate (TRAP-01 / D-04) ───────────────────────────────────
+    # EPS_Stability from graham_defensive_score: 0 if fewer than 8 of last
+    # 10 years had positive EPS, 1 otherwise.  A value of 0 trips the gate.
+    eps_stab_for_gate = ds.get("EPS_Stability")
+    is_trap, cov_fraction = trap_gate(
+        debt_equity   = fund["debt_equity"],
+        current_ratio = fund["current_ratio"],
+        eps_stability = eps_stab_for_gate,
+        fcf_per_share = fund["fcf_per_share"],
+    )
+
+    # ── Overall score (SCORE-01..08) ─────────────────────────────────
+    # Pass the audited discount values from lm/gm (already sentinel-routed
+    # to WORST_DISCOUNT for negative-input tickers via the D-01 intercepts
+    # above, so negative-input rows reach here and receive Value=0).
+    scores = overall_score(
+        lynch_discount   = lm.get("Lynch_Discount_Pct"),
+        graham_discount  = gm.get("Graham_Discount_Pct"),
+        defensive_score  = ds.get("DefensiveScore"),
+        debt_equity      = fund["debt_equity"],
+        current_ratio    = fund["current_ratio"],
+        growth_g         = g,
+        growth_stability = growth_stability,
+        is_trap          = is_trap,
+        coverage_fraction= cov_fraction,
+        aaa_yield        = aaa_yield,
+    )
+
+    # Merge flat score columns (additive — existing keys untouched, D-02c)
+    row["OverallScore"]   = scores["overall"]
+    row["score_value"]    = scores["value"]
+    row["score_quality"]  = scores["quality"]
+    row["score_growth"]   = scores["growth"]
+    row["score_safety"]   = scores["safety"]
+    row["is_trap"]        = is_trap
+    row["coverage_pct"]   = scores["coverage_pct"]
 
     # ── Show? — at least one Buy signal ─────────────────────────────
     buy_signals = {"Strong Buy", "Buy", "Deep Buy"}
@@ -1067,8 +1117,11 @@ def run_screener(universe: pd.DataFrame, aaa_yield: float) -> pd.DataFrame:
         result["Indexes"] = row["indexes"]
         results.append(result)
     df = pd.DataFrame(results)
-    # Sort by CombinedScore descending (best opportunities first)
-    if "CombinedScore" in df.columns:
+    # Sort by OverallScore descending (SCORE-08 / D-02c).
+    # CombinedScore is retained as a column — only the sort key changes.
+    if "OverallScore" in df.columns:
+        df = df.sort_values("OverallScore", ascending=False, na_position="last")
+    elif "CombinedScore" in df.columns:
         df = df.sort_values("CombinedScore", ascending=False, na_position="last")
     return df
 
@@ -1088,6 +1141,19 @@ def write_json(df: pd.DataFrame) -> None:
         sys.exit(1)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     rows = json.loads(df.to_json(orient="records"))
+    # Build nested scores object post-serialization (SCORE-05 / Pitfall 3).
+    # Constructing here rather than storing a dict in a DataFrame column avoids
+    # pandas dict-column edge cases (Pitfall 3 preferred approach).
+    for row in rows:
+        row["scores"] = {
+            "overall":      row.get("OverallScore"),
+            "value":        row.get("score_value"),
+            "quality":      row.get("score_quality"),
+            "growth":       row.get("score_growth"),
+            "safety":       row.get("score_safety"),
+            "coverage_pct": row.get("coverage_pct"),
+            "trap":         row.get("is_trap", False),
+        }
     payload = {
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "rows": rows,
