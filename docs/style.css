@@ -246,3 +246,88 @@ nav.main-nav {
 .checklist-table th { background: #2e3440; color: #eceff4; }
 .checklist-table td { color: #d8dee9; }
 .checklist-table tr:nth-child(even) td { background: #434c5e; }
+
+/* ── H: Top Picks page — card / badge / chip styles ───────────────────── */
+#top-container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.2rem;
+}
+
+.top-card {
+  background: #3b4252;
+  border: 1px solid #4c566a;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.card-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.card-row:last-child { margin-bottom: 0; }
+
+.card-rank {
+  display: inline-block;
+  background: #434c5e;
+  color: #eceff4;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.card-ticker {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.card-price {
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+  color: #d8dee9;
+}
+
+.score-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.trap-badge {
+  display: inline-block;
+  background: #bf616a;
+  color: #eceff4;
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.pillar-chip {
+  display: inline-block;
+  background: #434c5e;
+  color: #d8dee9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.signal-chip {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
