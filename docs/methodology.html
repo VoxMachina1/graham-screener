@@ -12,8 +12,6 @@
   <header class="site-header">
     <span class="site-title">Lynch &amp; Graham Screener</span>
     <nav class="main-nav" aria-label="Site navigation">
-      <a href="index.html" class="nav-link">Dashboard</a>
-      <a href="methodology.html" class="nav-link active" aria-current="page">Methodology</a>
     </nav>
   </header>
 
@@ -324,7 +322,12 @@
 
   </main>
 
+  <!-- ── Shared primitives (buildNav) ── -->
+  <script src="app.js"></script>
+
   <script>
+    buildNav("methodology");
+
     var tabs = document.querySelectorAll('[role="tab"]');
 
     tabs.forEach(function(tab, i) {
