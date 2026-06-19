@@ -66,18 +66,18 @@
 
 ### Composite Scoring Engine
 
-- [ ] **SCORE-01**: A scoring module computes a 4-pillar absolute `OverallScore` (0–100) from Value / Quality / Growth / Safety pillars
-- [ ] **SCORE-02**: Each raw metric maps to a bounded sub-score via configurable **absolute thresholds** (piecewise-linear bands), not cross-sectional ranks
-- [ ] **SCORE-03**: Raw inputs are winsorized/clamped (both tails) before pillar aggregation so one glitch cannot dominate
-- [ ] **SCORE-04**: Missing metrics are handled by averaging over *present* metrics within a pillar, emitting a per-row coverage flag; a missing safety input is treated as "unknown," never "safe"
-- [ ] **SCORE-05**: `OverallScore` decomposes into pillar sub-scores exposed in `results.json` (flat columns + a nested `scores` object) and in the UI
-- [ ] **SCORE-06**: Pillar weights and all thresholds live as version-controlled config constants; yield-based thresholds are rate-relativized to the live FRED AAA yield
-- [ ] **SCORE-07**: Correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
-- [ ] **SCORE-08**: `OverallScore` replaces `CombinedScore` as the primary sort key
+- [x] **SCORE-01**: A scoring module computes a 4-pillar absolute `OverallScore` (0–100) from Value / Quality / Growth / Safety pillars
+- [x] **SCORE-02**: Each raw metric maps to a bounded sub-score via configurable **absolute thresholds** (piecewise-linear bands), not cross-sectional ranks
+- [x] **SCORE-03**: Raw inputs are winsorized/clamped (both tails) before pillar aggregation so one glitch cannot dominate
+- [x] **SCORE-04**: Missing metrics are handled by averaging over *present* metrics within a pillar, emitting a per-row coverage flag; a missing safety input is treated as "unknown," never "safe"
+- [x] **SCORE-05**: `OverallScore` decomposes into pillar sub-scores exposed in `results.json` (flat columns + a nested `scores` object) and in the UI
+- [x] **SCORE-06**: Pillar weights and all thresholds live as version-controlled config constants; yield-based thresholds are rate-relativized to the live FRED AAA yield
+- [x] **SCORE-07**: Correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
+- [x] **SCORE-08**: `OverallScore` replaces `CombinedScore` as the primary sort key
 
 ### Value-Trap Gating
 
-- [ ] **TRAP-01**: An interim value-trap gate is computed from existing signals (debt/equity, current ratio, EPS stability, negative FCF) so a cheap-but-dying stock is flagged before any public Top-N ships
+- [x] **TRAP-01**: An interim value-trap gate is computed from existing signals (debt/equity, current ratio, EPS stability, negative FCF) so a cheap-but-dying stock is flagged before any public Top-N ships
 - [ ] **TRAP-02**: A value-trap badge/flag is displayed on the Top-N page
 - [ ] **TRAP-03**: Altman Z and Piotroski F replace/augment the interim gate as the Safety-pillar driver once available
 
@@ -188,15 +188,15 @@
 | CLN-04 | Phase 4 | Pending | Remove dead Tiingo config |
 | FIX-01 | Phase 5 | Complete 2026-06-19 | Buy Price bug — root cause documented (VB conservative base PE=7); KO fixture passing |
 | FIX-02 | Phase 5 | Complete 2026-06-19 | KO fixture confirms discounts sane; FIX-02 gate passed; Plan 02 may proceed |
-| SCORE-01 | Phase 5 | Pending | 4-pillar absolute OverallScore (Value/Quality/Growth/Safety) |
-| SCORE-02 | Phase 5 | Pending | Absolute-threshold piecewise-linear band mapping (not ranks) |
-| SCORE-03 | Phase 5 | Pending | Winsorize/clamp both tails before pillar aggregation |
-| SCORE-04 | Phase 5 | Pending | Average-over-present missing rule + coverage flag; missing safety = unknown |
-| SCORE-05 | Phase 5 | Pending | Pillar decomposition in flat columns + nested scores object + UI |
-| SCORE-06 | Phase 5 | Pending | Version-controlled weights/thresholds; yield thresholds rate-relativized to AAA |
-| SCORE-07 | Phase 5 | Pending | Group correlated Value metrics (avoid glorified cheapness rank) |
-| SCORE-08 | Phase 5 | Pending | OverallScore replaces CombinedScore as primary sort key |
-| TRAP-01 | Phase 5 | Pending | Interim value-trap gate from existing signals before public Top-N ships |
+| SCORE-01 | Phase 5 | Complete | 4-pillar absolute OverallScore (Value/Quality/Growth/Safety) |
+| SCORE-02 | Phase 5 | Complete | Absolute-threshold piecewise-linear band mapping (not ranks) |
+| SCORE-03 | Phase 5 | Complete | Winsorize/clamp both tails before pillar aggregation |
+| SCORE-04 | Phase 5 | Complete | Average-over-present missing rule + coverage flag; missing safety = unknown |
+| SCORE-05 | Phase 5 | Complete | Pillar decomposition in flat columns + nested scores object + UI |
+| SCORE-06 | Phase 5 | Complete | Version-controlled weights/thresholds; yield thresholds rate-relativized to AAA |
+| SCORE-07 | Phase 5 | Complete | Group correlated Value metrics (avoid glorified cheapness rank) |
+| SCORE-08 | Phase 5 | Complete | OverallScore replaces CombinedScore as primary sort key |
+| TRAP-01 | Phase 5 | Complete | Interim value-trap gate from existing signals before public Top-N ships |
 | TRAP-02 | Phase 5 | Pending | Value-trap badge on Top-N page |
 | PAGE-01 | Phase 5 | Pending | docs/top.html Top 10/25 picks page |
 | PAGE-03 | Phase 5 | Pending | Shared docs/app.js fetch/format/color/freshness primitives |
