@@ -367,6 +367,8 @@ def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     else:
         cat = "Fast"
     m["Lynch_Category"] = cat
+    # FV_GplusD treats Lynch_Score = 1.0 as the fair-value anchor (fair P/E = g + dy).
+    # Lynch_BuyPrice applies a category-specific margin-of-safety haircut (Slow=75%, etc.).
     m["Lynch_BuyPrice"] = round(m["FV_GplusD"] * LYNCH_DISCOUNT[cat], 2)
 
     # PEG status
@@ -422,6 +424,28 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
     """
     Compute Graham intrinsic value (both versions) and price bands.
     g is a whole-number percent, capped upstream.
+
+    FORMULA AUDIT (Phase 5, FIX-01) — do NOT "fix" these without reading this:
+
+    VA = eps * (8.5 + 2*g) * 4.4 / aaa_yield
+         This IS the canonical 1974 revised Graham formula from The Intelligent
+         Investor (Ch. 11).  8.5 = no-growth P/E, 2g = growth adjustment,
+         4.4 = Graham's 1963 AAA reference yield.  ✓ matches source definition.
+
+    VB = eps * (7 + g) * 4.4 / aaa_yield
+         This is a practitioner-conservative variant (NOT from Graham's book).
+         It uses a lower no-growth base P/E of 7 instead of Graham's 8.5, and
+         applies the growth multiplier once (not 2×).  This deliberately
+         produces lower fair values for quality franchises — which is the
+         intended conservative behavior.
+
+    FV = min(VA, VB)  → always picks the more conservative (lower) value.
+
+    AUDIT CONCLUSION: Both formulas are algebraically correct relative to their
+    definitions.  The "visibly wrong" buy prices are the expected output of a
+    conservative model: quality franchises trading at justified premiums
+    (e.g., KO at $70 with FV ≈ $28) will always show large negative discounts.
+    This is model conservatism, not a code defect.  See tests/test_valuation_fixture.py.
     """
     m = {}
 
@@ -430,13 +454,13 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
 
     g_capped = min(g, 15.0)  # Graham himself suggested capping at 15
 
-    # Version A — classic rate-adjusted
+    # Version A — classic 1974 rate-adjusted Graham formula (8.5 + 2g) × 4.4/Y
     m["Graham_VA"] = round(eps * (GRAHAM_NO_GROWTH_PE + 2 * g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
-    # Version B — conservative (lower base PE, single g multiplier)
+    # Version B — conservative practitioner variant: base P/E 7 + g (NOT from Graham's book)
     m["Graham_VB"] = round(eps * (7 + g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
-    # Use the more conservative (lower) of the two
+    # Use the more conservative (lower) of the two — intentional, see audit note above
     m["Graham_FV"] = min(m["Graham_VA"], m["Graham_VB"])
 
     # Price band
