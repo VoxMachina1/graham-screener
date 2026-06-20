@@ -725,6 +725,43 @@ def compute_growth_5yr_cagr(annual_eps: list) -> float | None:
     return min(round(cagr, 2), GROWTH_CAP)
 
 
+def _reconcile_growth(g_finnhub: float | None, g_cagr: float | None) -> float | None:
+    """
+    Reconcile Finnhub's reported 5Y EPS growth against the realized CAGR from EPS
+    history (Bug B fix).  Finnhub free-tier ``epsGrowth5Y`` is frequently inflated
+    for flat/declining-EPS names — left unchecked it gets trusted, then capped at
+    GROWTH_CAP, producing a fake 25% grower that inflates Lynch/Graham valuations.
+    When a realized CAGR exists we take the lower (reality-anchored) value; otherwise
+    we fall back to whichever single value is present.
+
+    # ponytail: endpoint-sensitive (uses first/last EPS in the available window).
+    #   Good enough as an interim anchor — Phase 7 refines growth handling
+    #   (upgrade path: regression slope across the window, or a longer EPS history).
+    """
+    if g_finnhub is None:
+        return g_cagr
+    if g_cagr is None:
+        return g_finnhub
+    return min(g_finnhub, g_cagr)
+
+
+def _eps_stable_for_gate(annual_eps: list) -> int | None:
+    """
+    Window-appropriate EPS-stability signal for the value-trap gate (Bug A fix).
+
+    The defensive ``EPS_Stability`` criterion uses an 8-of-10-year rule, but yfinance
+    supplies only ~4 years of annual EPS, so it is structurally 0 for every ticker —
+    which tripped the trap gate (and floored the Safety pillar to 0) for the entire
+    universe, making both signals useless.  Instead, judge stability over the
+    *available* window: stable (1) only if every available year had positive EPS;
+    unstable (0) if any year was <= 0; None when too few years to judge (D-01b unknown).
+    """
+    eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
+    if len(eps) < 2:
+        return None
+    return 1 if all(e > 0 for e in eps) else 0
+
+
 def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     """
     Compute all Lynch valuation metrics.
@@ -986,11 +1023,12 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     dy = round((float(dps) / float(price)) * 100, 4) if price and float(dps) > 0 else 0.0
     row["DivYield_Pct"] = round(dy, 2)
 
-    # ── Growth — use Finnhub 5Y CAGR, fall back to computed CAGR ────
-    g = fund["growth_pct"]
-    if g is None:
-        # Fallback: compute from yfinance EPS history
-        g = compute_growth_5yr_cagr(fund["annual_eps"])
+    # ── Growth — Finnhub 5Y CAGR, reality-anchored to realized EPS CAGR (Bug B) ──
+    # Reconcile against the realized CAGR so an inflated Finnhub growth can't make a
+    # flat/declining-EPS stock look like a 25% grower; falls back to computed CAGR
+    # when Finnhub is absent. Negative reconciled growth flows to lynch_metrics() as
+    # g <= 0 and is intercepted to WORST_DISCOUNT below (D-01) — not floored or dropped.
+    g = _reconcile_growth(fund["growth_pct"], compute_growth_5yr_cagr(fund["annual_eps"]))
     if g is None:
         # Truly absent growth data — no basis for valuation (D-01b: genuinely missing,
         # distinct from a present-but-negative value which routes to WORST_DISCOUNT below).
@@ -1066,9 +1104,10 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         growth_stability = None
 
     # ── Trap gate (TRAP-01 / D-04) ───────────────────────────────────
-    # EPS_Stability from graham_defensive_score: 0 if fewer than 8 of last
-    # 10 years had positive EPS, 1 otherwise.  A value of 0 trips the gate.
-    eps_stab_for_gate = ds.get("EPS_Stability")
+    # Bug A fix: the defensive EPS_Stability uses an 8-of-10-year rule, but yfinance
+    # supplies only ~4 years, so it was structurally 0 and tripped the gate for EVERY
+    # ticker (dead Safety pillar). Use a window-appropriate stability signal instead.
+    eps_stab_for_gate = _eps_stable_for_gate(fund["annual_eps"])
     is_trap, cov_fraction = trap_gate(
         debt_equity   = fund["debt_equity"],
         current_ratio = fund["current_ratio"],
