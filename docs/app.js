@@ -41,6 +41,20 @@ var COLOR_STYLES = {
   red:    { bg: "#bf616a", text: "#eceff4" }
 };
 
+// ── HTML-escape for untrusted text (tickers, signal values) ───────────────
+// Tickers originate from scraped Wikipedia HTML, so they are untrusted.
+// Escapes the five characters that are unsafe in both element text and
+// double-quoted attribute contexts. For URLs, encodeURIComponent the value
+// separately — this helper is for HTML escaping only.
+function escHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ── Formatter: signal columns ──────────────────────────────────────────────
 function makeSignalFormatter(field) {
   return function(cell) {

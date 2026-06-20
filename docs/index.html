@@ -85,7 +85,7 @@
 
     return [
       // ── Identity ──────────────────────────────────────────────────────────
-      { title: "Ticker",       field: "Ticker",       frozen: true,  sorter: "string", formatter: function(cell) { var t = cell.getValue(); return '<a href="https://finviz.com/quote.ashx?t=' + t + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">' + t + '</a>'; }, ...txt },
+      { title: "Ticker",       field: "Ticker",       frozen: true,  sorter: "string", formatter: function(cell) { var t = escHtml(String(cell.getValue() == null ? "" : cell.getValue())); var href = "https://finviz.com/quote.ashx?t=" + encodeURIComponent(cell.getValue() == null ? "" : cell.getValue()); return '<a href="' + href + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">' + t + '</a>'; }, ...txt },
       { title: "Price",        field: "Price",        sorter: "number", formatter: numFmt(2), ...num },
       { title: "Mkt Cap ($B)", field: "MarketCap_B",  sorter: "number", formatter: numFmt(2), ...num },
       { title: "EPS TTM",      field: "EPS_TTM",      sorter: "number", formatter: numFmt(2), ...num },
