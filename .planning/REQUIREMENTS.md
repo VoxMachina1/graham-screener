@@ -197,10 +197,10 @@
 | SCORE-07 | Phase 5 | Complete | Group correlated Value metrics (avoid glorified cheapness rank) |
 | SCORE-08 | Phase 5 | Complete | OverallScore replaces CombinedScore as primary sort key |
 | TRAP-01 | Phase 5 | Complete | Interim value-trap gate from existing signals before public Top-N ships |
-| TRAP-02 | Phase 5 | Pending | Value-trap badge on Top-N page |
-| PAGE-01 | Phase 5 | Pending | docs/top.html Top 10/25 picks page |
-| PAGE-03 | Phase 5 | Pending | Shared docs/app.js fetch/format/color/freshness primitives |
-| PAGE-04 | Phase 5 | Pending | Site nav: Dashboard, Top Picks, Stats, Methodology |
+| TRAP-02 | Phase 5 | Complete | Value-trap badge on Top-N cards (conditional on is_trap); in-browser visual deferred to next Actions run |
+| PAGE-01 | Phase 5 | Complete | docs/top.html Top 10/25 picks page (10/25 toggle, OverallScore/pillar cards) |
+| PAGE-03 | Phase 5 | Complete | Shared docs/app.js fetch/format/color/freshness/buildNav primitives |
+| PAGE-04 | Phase 5 | Complete | Site nav (3 links: Dashboard, Top Picks, Methodology; Stats deferred to Phase 7) |
 | SECTOR-01 | Phase 6 | Pending | GICS sector per ticker as row field — prereq for Phase 7 guards |
 | SIGNAL-01 | Phase 6 | Pending | Distance below 52w high / above 52w low (%) |
 | SIGNAL-02 | Phase 6 | Pending | Distance above 5-year low (%) |
