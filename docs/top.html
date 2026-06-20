@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Top Picks &mdash; Lynch &amp; Graham Screener</title>
+
+  <!-- Google Fonts preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Project shared CSS (Nord theme, nav, toolbar, card styles) -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Stale-data banner (hidden until JS shows it) ── -->
+  <div class="stale-banner" id="stale-banner">
+    Warning: Data is more than 3 days old. Run the screener to refresh.
+  </div>
+
+  <!-- ── Site header: title + nav + freshness badge ── -->
+  <header class="site-header">
+    <span class="site-title">Lynch &amp; Graham Screener</span>
+    <nav class="main-nav" aria-label="Site navigation">
+    </nav>
+    <span class="freshness-badge" id="freshness-badge">Loading data&hellip;</span>
+  </header>
+
+  <!-- ── Toolbar: count toggle ── -->
+  <div class="toolbar" role="toolbar" aria-label="Top picks controls">
+    <button class="btn-pill active" id="btn-top-10" aria-pressed="true">Top 10</button>
+    <button class="btn-pill"        id="btn-top-25" aria-pressed="false">Top 25</button>
+  </div>
+
+  <!-- ── Card list ── -->
+  <main id="top-container"></main>
+
+  <!-- ── Shared primitives (SIGNAL_COLORS, formatters, buildNav) ── -->
+  <script src="app.js"></script>
+
+  <script>
+  /* ─────────────────────────────────────────────────────────────────────────
+     Lynch & Graham Screener — Top Picks page
+     Shared primitives live in app.js, loaded before this script.
+  ───────────────────────────────────────────────────────────────────────── */
+
+  var allRows   = [];   // sorted, filtered — full set; sliced per toggle
+  var currentN  = 10;
+
+  // ── OverallScore badge color (per UI-SPEC thresholds) ────────────────────
+  function scoreBadgeStyle(score) {
+    var s = score === null || score === undefined ? -1 : score;
+    if (s >= 70) return { bg: "#a3be8c", text: "#2e3440" };
+    if (s >= 40) return { bg: "#ebcb8b", text: "#2e3440" };
+    return { bg: "#bf616a", text: "#eceff4" };
+  }
+
+  // ── Format a pillar sub-score (number → 1dp, null → em-dash) ─────────────
+  function fmtPillar(v) {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "number" && isNaN(v)) return "—";
+    return typeof v === "number" ? v.toFixed(1) : String(v);
+  }
+
+  // ── Format price (2dp) ────────────────────────────────────────────────────
+  function fmtPrice(v) {
+    if (v === null || v === undefined) return "—";
+    return typeof v === "number" ? "$" + v.toFixed(2) : String(v);
+  }
+
+  // ── Signal chip HTML (color from SIGNAL_COLORS / COLOR_STYLES) ───────────
+  function signalChipHtml(label, field, value) {
+    if (value === null || value === undefined || value === "") {
+      return '<span class="signal-chip" style="background:#3b4252;color:#d8dee9;">' +
+             label + ': —</span>';
+    }
+    var colorKey = (SIGNAL_COLORS[field] || {})[value];
+    var bg   = colorKey ? COLOR_STYLES[colorKey].bg   : "#3b4252";
+    var fg   = colorKey ? COLOR_STYLES[colorKey].text : "#d8dee9";
+    var wt   = colorKey ? "600" : "400";
+    return '<span class="signal-chip" style="background:' + bg + ';color:' + fg +
+           ';font-weight:' + wt + ';">' + label + ': ' +
+           escHtml(String(value)) + '</span>';
+  }
+
+  // escHtml is provided by app.js (escapes & < > " ' for HTML/attribute safety).
+
+  // ── Render top N cards into #top-container ────────────────────────────────
+  function renderTopN(rows, n) {
+    var container = document.getElementById("top-container");
+    var slice = rows.slice(0, n);
+
+    if (slice.length === 0) {
+      container.innerHTML =
+        '<p style="padding:1.2rem;color:#d8dee9;">No picks available<br>' +
+        '<span style="font-size:0.85rem;">The screener data could not be loaded. ' +
+        'Check the Actions workflow or try refreshing.</span></p>';
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < slice.length; i++) {
+      var r    = slice[i];
+      var rank = i + 1;
+      var score = r.OverallScore === null || r.OverallScore === undefined ? null : r.OverallScore;
+      var style = scoreBadgeStyle(score);
+      var scoreText = score !== null ? score.toFixed(1) : "—";
+      var rawTicker = r.Ticker == null ? "" : String(r.Ticker);
+      var ticker = escHtml(rawTicker);
+      var finvizHref = "https://finviz.com/quote.ashx?t=" + encodeURIComponent(rawTicker);
+
+      // Row 1: rank, ticker, price, score badge, trap badge
+      var row1 = '<div class="card-row">' +
+        '<span class="card-rank">#' + rank + '</span>' +
+        '<a href="' + finvizHref + '" target="_blank" rel="noopener" ' +
+           'class="card-ticker" style="color:inherit;text-decoration:underline;">' +
+           ticker + '</a>' +
+        '<span class="card-price">' + fmtPrice(r.Price) + '</span>' +
+        '<span class="score-badge" style="background:' + style.bg + ';color:' + style.text + ';">' +
+           scoreText + '</span>' +
+        (r.is_trap ? '<span class="trap-badge">TRAP</span>' : '') +
+        '</div>';
+
+      // Row 2: pillar chips
+      var row2 = '<div class="card-row">' +
+        '<span class="pillar-chip">Value: '   + fmtPillar(r.score_value)   + '</span>' +
+        '<span class="pillar-chip">Quality: ' + fmtPillar(r.score_quality) + '</span>' +
+        '<span class="pillar-chip">Growth: '  + fmtPillar(r.score_growth)  + '</span>' +
+        '<span class="pillar-chip">Safety: '  + fmtPillar(r.score_safety)  + '</span>' +
+        '</div>';
+
+      // Row 3: headline signals (double-prefix keys per D-14 / Pitfall 5)
+      var row3 = '<div class="card-row">' +
+        signalChipHtml("Lynch",     "Lynch_Lynch_Status",   r.Lynch_Lynch_Status) +
+        signalChipHtml("Graham",    "Graham_Graham_Status", r.Graham_Graham_Status) +
+        signalChipHtml("Defensive", "DefensiveLabel",       r.DefensiveLabel) +
+        '</div>';
+
+      html += '<div class="top-card">' + row1 + row2 + row3 + '</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  // ── 10 / 25 toggle ────────────────────────────────────────────────────────
+  var btn10 = document.getElementById("btn-top-10");
+  var btn25 = document.getElementById("btn-top-25");
+
+  btn10.addEventListener("click", function() {
+    if (currentN === 10) return;
+    currentN = 10;
+    btn10.classList.add("active");    btn10.setAttribute("aria-pressed", "true");
+    btn25.classList.remove("active"); btn25.setAttribute("aria-pressed", "false");
+    renderTopN(allRows, currentN);
+  });
+
+  btn25.addEventListener("click", function() {
+    if (currentN === 25) return;
+    currentN = 25;
+    btn25.classList.add("active");    btn25.setAttribute("aria-pressed", "true");
+    btn10.classList.remove("active"); btn10.setAttribute("aria-pressed", "false");
+    renderTopN(allRows, currentN);
+  });
+
+  // ── Data fetch ────────────────────────────────────────────────────────────
+  fetch("data/results.json?v=" + Date.now())
+    .then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status + " fetching results.json");
+      return r.json();
+    })
+    .then(function(data) {
+      updateFreshnessUI(data.generated_at);
+      buildNav("top");
+
+      // Filter error rows, sort by OverallScore desc
+      allRows = (data.rows || [])
+        .filter(function(r) { return r.Error === null || r.Error === undefined; })
+        .sort(function(a, b) {
+          // null/undefined/NaN scores sort last (mirrors Python na_position="last");
+          // a legitimate worst-case score of 0 must not tie with a missing score.
+          var av = (typeof a.OverallScore === "number" && !isNaN(a.OverallScore)) ? a.OverallScore : -Infinity;
+          var bv = (typeof b.OverallScore === "number" && !isNaN(b.OverallScore)) ? b.OverallScore : -Infinity;
+          return bv - av;
+        });
+
+      renderTopN(allRows, currentN);
+    })
+    .catch(function(err) {
+      document.getElementById("freshness-badge").textContent = "Error loading data";
+      document.getElementById("top-container").innerHTML =
+        '<p style="padding:1.2rem;color:#d8dee9;">No picks available<br>' +
+        '<span style="font-size:0.85rem;">The screener data could not be loaded. ' +
+        'Check the Actions workflow or try refreshing.</span></p>';
+      console.error("Top Picks load error:", err);
+    });
+  </script>
+
+</body>
+</html>

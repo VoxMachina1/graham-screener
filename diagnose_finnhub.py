@@ -50,6 +50,13 @@ for ticker in TICKERS:
             "currentRatioAnnual", "totalDebt/totalEquityAnnual",
             "bookValuePerShareAnnual", "dividendsPerShareAnnual",
             "pb", "pe",
+            # Phase 5 FCF gate fields (D-04) — confirm exact key names here
+            "freeCashFlowPerShareAnnual",
+            "freeCashFlowPerShareTTM",
+            # Additional fields for KO fixture verification
+            "epsAnnual",
+            "epsGrowth5Y",
+            "dividendPerShareAnnual",
         ]
         print("  Fields of interest:")
         for f in fields_of_interest:

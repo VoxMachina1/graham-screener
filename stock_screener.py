@@ -72,11 +72,386 @@ GRAHAM_WATCH        = 0.95
 # Category-specific Lynch buy discount factors
 LYNCH_DISCOUNT = {"Slow": 0.75, "Stalwart": 0.80, "Fast": 0.70}
 
+# Sentinel discount for tickers with negative/zero growth or EPS that breaks
+# the Lynch/Graham formulas.  Plan 02's scorer maps this to sub-score 0 (worst).
+# The stock is RETAINED in the output and ranks at the bottom — it is NOT dropped.
+# Distinct from a genuine no-price/no-EPS fetch failure, which early-returns as Error.
+WORST_DISCOUNT = -999.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCORING ENGINE CONFIG — SCORE_* / TRAP_* / PILLAR_WEIGHTS
+#
+# All weights, band thresholds, and winsorization bounds live here as
+# version-controlled loud constants (D-02b).  THESE HAVE NO EMPIRICAL ANCHOR
+# YET — they are first-pass estimates.  Distribution monitoring is planned for
+# stats.html (Phase 7); expect tuning after real production runs.
+#
+# Rate-relativized thresholds (discount bands): scaled by SCORE_AAA_REFERENCE /
+# live AAA yield at runtime so a 15% discount is less impressive in a high-rate
+# environment (SCORE-06).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Graham's 1963 AAA reference yield — used to rate-relativize discount thresholds.
+SCORE_AAA_REFERENCE  = 4.4     # % — Graham's original 1963 reference; DO NOT CHANGE
+
+# ── Value pillar: discount winsorization + bands ──────────────────────────
+# Winsorize both Lynch and Graham discounts before piecewise scoring.
+# Below -100%: extreme premium (stock at 2× fair value) — floor here.
+# Above  60%:  extreme discount — cap here (matches legacy CombinedScore clip).
+SCORE_DISC_WIN_LO    = -100.0  # floor discount at -100% (2× fair value)
+SCORE_DISC_WIN_HI    =   60.0  # cap   discount at  60% (deep value)
+
+# Piecewise bands: (raw_lo, raw_hi, score_lo, score_hi).
+# Assumed at AAA = 4.4%; scaled by SCORE_AAA_REFERENCE/aaa_yield at runtime.
+# Negative discount (stock above buy price) → low-but-nonzero score; the
+# Lynch/Graham framework already signals "Avoid" — discount adds texture, not a veto.
+SCORE_DISC_BANDS     = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (-100.0,  -30.0,   0,  10),  # very expensive
+    ( -30.0,    0.0,  10,  40),  # modestly expensive
+    (   0.0,   15.0,  40,  70),  # near or at buy target
+    (  15.0,   30.0,  70,  90),  # significantly cheap
+    (  30.0,   60.0,  90, 100),  # deep value territory
+]
+
+# ── Quality pillar: DefensiveScore bands ─────────────────────────────────
+# DefensiveScore ranges 0–8 (one point per Graham criterion passed).
+SCORE_DEF_BANDS      = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (0, 2,   0,  20),
+    (2, 4,  20,  50),
+    (4, 6,  50,  80),
+    (6, 8,  80, 100),
+]
+
+# ── Quality pillar: Debt/Equity bands ─────────────────────────────────────
+# Lower D/E = better; bands map raw D/E → [0, 100] inverted.
+# Negative D/E (negative equity) → D-01 worst-score path, NOT winsorize path.
+SCORE_DE_WIN_HI      =   5.0   # cap D/E at 5.0 (extreme leverage)
+SCORE_DE_BANDS       = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (0.0, 0.5, 100,  90),  # minimal debt
+    (0.5, 1.0,  90,  70),  # moderate leverage
+    (1.0, 2.0,  70,  40),  # elevated leverage
+    (2.0, 5.0,  40,   0),  # high leverage
+]
+
+# ── Quality pillar: Current Ratio bands ──────────────────────────────────
+SCORE_CR_WIN_HI      =   8.0   # cap current ratio at 8.0 (hoarding threshold)
+SCORE_CR_BANDS       = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (0.0, 1.0,   0,  30),  # technically illiquid
+    (1.0, 1.5,  30,  60),
+    (1.5, 2.0,  60,  80),
+    (2.0, 4.0,  80, 100),
+    (4.0, 8.0, 100,  90),  # above 4 fine; above 8 may signal hoarding
+]
+
+# ── Growth pillar: Growth level bands ────────────────────────────────────
+# g is already GROWTH_CAP-capped at 25%.  Non-positive g → D-01 worst = 0.
+SCORE_G_BANDS        = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    ( 0.0,  3.0,   0,  20),  # near-zero / slow
+    ( 3.0,  7.0,  20,  50),  # slow grower
+    ( 7.0, 12.0,  50,  75),  # moderate grower
+    (12.0, 20.0,  75,  90),
+    (20.0, 25.0,  90, 100),
+]
+
+# ── Growth pillar: Growth stability bands ─────────────────────────────────
+# Derived from annual_eps history: fraction of years with positive EPS.
+# Range: 0.0–1.0.  None when fewer than 3 years available (D-01b).
+SCORE_GSTAB_BANDS    = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (0.0, 0.4,   0,  20),
+    (0.4, 0.6,  20,  50),
+    (0.6, 0.8,  50,  80),
+    (0.8, 1.0,  80, 100),
+]
+
+# ── Safety pillar: Trap gate result ──────────────────────────────────────
+# Tripped gate → floors Safety to 0 (D-03 worst-possible, consistent with D-01).
+# Non-tripped with full coverage → interim baseline 60 ("not a trap" is positive
+# but Altman/Piotroski will provide real granularity in Phase 7).
+# Non-tripped with partial coverage → baseline * coverage_fraction (D-01b).
+SCORE_SAFETY_TRAP_PENALTY = 0   # Safety floor when trap is tripped (D-03)
+SCORE_SAFETY_NOTRAP_BASE  = 60  # Interim baseline for non-trapped rows
+
+# ── Trap gate thresholds (TRAP-01 / D-04) ────────────────────────────────
+# Distress-level thresholds — deliberately more lenient than the Graham
+# defensive-investor criteria above (this gate is an interim trip-wire, not
+# a full safety analysis).
+TRAP_MAX_DE   = 2.0   # D/E above this trips the gate
+TRAP_MIN_CR   = 1.0   # current ratio below this trips the gate
+# EPS_Stability == 0  → trips gate (no positive EPS in recent history)
+# fcf_per_share < 0   → trips gate (negative free cash flow)
+
+# ── Pillar weights ────────────────────────────────────────────────────────
+# ~35/30/20/15 (Value/Quality/Growth/Safety) per D-02.
+# Weights are renormalized over present pillars at runtime (avg-over-present).
+PILLAR_WEIGHTS = {
+    "value":   0.35,
+    "quality": 0.30,
+    "growth":  0.20,
+    "safety":  0.15,
+}
+
 # ─────────────────────────────────────────────
 # LOGGING
 # ─────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
+
+
+# ═════════════════════════════════════════════
+# STEP — SCORING ENGINE (pure helpers + trap gate)
+# ═════════════════════════════════════════════
+# All functions here are pure: numeric inputs → numeric outputs, no I/O or
+# side effects.  They can be imported and tested without any API keys.
+
+
+def _piecewise_score(value: float, bands: list) -> float:
+    """
+    Map a raw metric value to [0, 100] via linear interpolation between breakpoints.
+
+    bands: list of (raw_lo, raw_hi, score_lo, score_hi) tuples, sorted ascending
+           by raw_lo.
+
+    Behaviour:
+      - value below the first band  → score_lo of the first band (typically 0).
+      - value above the last band   → score_hi of the last band (typically 100).
+      - value inside a band         → linearly interpolated; t clamped to [0, 1].
+    """
+    for (raw_lo, raw_hi, score_lo, score_hi) in bands:
+        if value <= raw_hi:
+            if raw_hi == raw_lo:
+                return float(score_lo)
+            t = (value - raw_lo) / (raw_hi - raw_lo)
+            t = max(0.0, min(1.0, t))
+            return score_lo + t * (score_hi - score_lo)
+    # Above all bands → score_hi of last band
+    return float(bands[-1][3])
+
+
+def _winsorize(value: float, lo: float, hi: float) -> float:
+    """Clamp value to [lo, hi] — both-tail winsorization (SCORE-03)."""
+    return max(lo, min(hi, value))
+
+
+def _avg_present(values: list) -> float | None:
+    """
+    Average over non-None values.  Returns None when all inputs are absent (D-01b).
+    Used at both the sub-group level (within a pillar) and the pillar level.
+    """
+    present = [v for v in values if v is not None]
+    return round(sum(present) / len(present), 2) if present else None
+
+
+def trap_gate(
+    debt_equity: float | None,
+    current_ratio: float | None,
+    eps_stability: int | None,
+    fcf_per_share: float | None,
+) -> tuple:
+    """
+    Interim value-trap gate (TRAP-01 / D-03 / D-04).
+
+    Returns (is_trap: bool, coverage_fraction: float).
+
+    is_trap is True if ANY *present* input trips its threshold:
+      - debt/equity  > TRAP_MAX_DE   (excessive leverage)
+      - current_ratio < TRAP_MIN_CR  (near-illiquid)
+      - eps_stability == 0           (no positive EPS in recent history)
+      - fcf_per_share < 0            (burning cash)
+
+    coverage_fraction = count_present / 4.  A value of 0.0 means all inputs were
+    None — the caller must treat Safety as "unknown", never "safe" (D-01b).
+
+    Note: debt_equity and current_ratio deliberately feed both the Quality pillar
+    (as graded sub-scores) and this Safety gate (at distress thresholds).  This is
+    intentional per 05-CONTEXT.md D-02 — do not "clean up" the double-use.
+    """
+    checks = []
+    if debt_equity is not None:
+        checks.append(debt_equity > TRAP_MAX_DE)
+    if current_ratio is not None:
+        checks.append(current_ratio < TRAP_MIN_CR)
+    if eps_stability is not None:
+        checks.append(eps_stability == 0)
+    if fcf_per_share is not None:
+        checks.append(fcf_per_share < 0)
+
+    is_trap = any(checks)
+    coverage_fraction = len(checks) / 4  # 4 possible gate inputs
+    return is_trap, coverage_fraction
+
+
+def overall_score(
+    lynch_discount: float | None,
+    graham_discount: float | None,
+    defensive_score: float | None,
+    debt_equity: float | None,
+    current_ratio: float | None,
+    growth_g: float | None,
+    growth_stability: float | None,
+    is_trap: bool,
+    coverage_fraction: float,
+    aaa_yield: float,
+) -> dict:
+    """
+    Compute the 4-pillar absolute OverallScore (0–100) and return a breakdown dict.
+
+    Returns:
+        {
+            "overall":      float | None,
+            "value":        float | None,
+            "quality":      float | None,
+            "growth":       float | None,
+            "safety":       float | None,
+            "coverage_pct": float,         # 0–100 fraction of sub-scores present
+        }
+
+    Pillar design (per 05-CONTEXT.md D-02):
+      VALUE   = discount sub-group (Lynch + Graham averaged) — SCORE-07 two-level
+                structure established even with one group, so Phase 6 adds a second
+                sub-group (FCF yield / EV-EBIT) trivially.
+      QUALITY = DefensiveScore + debt/equity + current_ratio
+      GROWTH  = growth level (g) + growth_stability
+      SAFETY  = trap gate result (D-03)
+
+    Intentional double-use: debt_equity and current_ratio appear in BOTH Quality
+    (as graded sub-scores) and Safety (as trap-gate inputs).  Per 05-CONTEXT.md
+    this is deliberate — do not "clean up" the overlap.
+
+    Input handling:
+      D-01  — negative/present values (WORST_DISCOUNT, negative D/E, non-positive g)
+              → sub-score 0 (worst), checked BEFORE winsorize.
+      D-01b — genuinely None values → averaged over present within pillar; missing
+              Safety = unknown (never safe).
+      D-02  — pillars renormalized over present pillars (avg-over-present at pillar level).
+      D-06  — yield-based discount thresholds scaled by SCORE_AAA_REFERENCE/aaa_yield.
+    """
+
+    # ── VALUE PILLAR ──────────────────────────────────────────────────────────
+    # Rate-relativization: scale discount band breakpoints by reference/live yield.
+    # When AAA yield is high, a 15% discount is less impressive → thresholds scale up.
+    rate_scale = SCORE_AAA_REFERENCE / aaa_yield if aaa_yield > 0 else 1.0
+
+    def _scaled_disc_bands():
+        """Return SCORE_DISC_BANDS with raw_lo/raw_hi scaled by the rate factor."""
+        return [
+            (lo * rate_scale, hi * rate_scale, s_lo, s_hi)
+            for (lo, hi, s_lo, s_hi) in SCORE_DISC_BANDS
+        ]
+
+    def _score_discount(disc: float | None) -> float | None:
+        """Map one discount value → sub-score 0–100 (D-01 + D-01b paths)."""
+        if disc is None:
+            return None  # D-01b: genuinely absent
+        if disc <= WORST_DISCOUNT + 1.0:
+            # D-01: sentinel value → worst sub-score 0 (checked before winsorize)
+            return 0.0
+        w = _winsorize(disc, SCORE_DISC_WIN_LO, SCORE_DISC_WIN_HI)
+        return _piecewise_score(w, _scaled_disc_bands())
+
+    lynch_sub   = _score_discount(lynch_discount)
+    graham_sub  = _score_discount(graham_discount)
+    # Two-level grouping per SCORE-07: average the two correlated discount signals
+    # into one "discount" sub-group so Value is not double-counted cheapness.
+    # Phase 6 will add a second sub-group (FCF yield etc.) at this level.
+    discount_group = _avg_present([lynch_sub, graham_sub])
+    score_value    = _avg_present([discount_group])  # single sub-group in Phase 5
+
+    # ── QUALITY PILLAR ────────────────────────────────────────────────────────
+    def _score_defensive(ds: float | None) -> float | None:
+        if ds is None:
+            return None
+        return _piecewise_score(_winsorize(ds, 0.0, 8.0), SCORE_DEF_BANDS)
+
+    def _score_debt_equity(de: float | None) -> float | None:
+        if de is None:
+            return None
+        if de < 0:
+            # D-01: negative equity (negative D/E) → worst sub-score
+            return 0.0
+        return _piecewise_score(_winsorize(de, 0.0, SCORE_DE_WIN_HI), SCORE_DE_BANDS)
+
+    def _score_current_ratio(cr: float | None) -> float | None:
+        if cr is None:
+            return None
+        return _piecewise_score(_winsorize(cr, 0.0, SCORE_CR_WIN_HI), SCORE_CR_BANDS)
+
+    def_sub   = _score_defensive(defensive_score)
+    de_sub    = _score_debt_equity(debt_equity)
+    cr_sub    = _score_current_ratio(current_ratio)
+    score_quality = _avg_present([def_sub, de_sub, cr_sub])
+
+    # ── GROWTH PILLAR ─────────────────────────────────────────────────────────
+    def _score_growth_g(gg: float | None) -> float | None:
+        if gg is None:
+            return None
+        if gg <= 0:
+            # D-01: non-positive growth (present but terrible) → worst sub-score
+            return 0.0
+        return _piecewise_score(_winsorize(gg, 0.0, GROWTH_CAP), SCORE_G_BANDS)
+
+    def _score_growth_stability(gs: float | None) -> float | None:
+        if gs is None:
+            return None
+        return _piecewise_score(_winsorize(gs, 0.0, 1.0), SCORE_GSTAB_BANDS)
+
+    growth_g_sub    = _score_growth_g(growth_g)
+    growth_stab_sub = _score_growth_stability(growth_stability)
+    score_growth    = _avg_present([growth_g_sub, growth_stab_sub])
+
+    # ── SAFETY PILLAR (D-03 / D-01b) ─────────────────────────────────────────
+    if is_trap:
+        # Tripped gate → floor Safety to 0 regardless of coverage (D-03)
+        score_safety = float(SCORE_SAFETY_TRAP_PENALTY)
+    elif coverage_fraction == 0.0:
+        # All trap inputs absent → Safety is unknown.  D-01b: never treat as safe.
+        # Represented as None so it is averaged-over-present at the pillar level —
+        # a missing Safety pillar is unknown, not a free 60-point gift.
+        score_safety = None
+    else:
+        # Non-trapped with partial-to-full coverage: scale baseline by coverage.
+        # Phase 7 (Altman/Piotroski) will replace this interim formula.
+        score_safety = round(SCORE_SAFETY_NOTRAP_BASE * coverage_fraction, 2)
+
+    # ── OVERALL SCORE — weighted avg over present pillars (D-02) ─────────────
+    pillars = {
+        "value":   score_value,
+        "quality": score_quality,
+        "growth":  score_growth,
+        "safety":  score_safety,
+    }
+    total_weight = 0.0
+    weighted_sum = 0.0
+    present_count = 0
+    total_sub_scores = 0
+
+    # Count all expected sub-scores for coverage_pct numerator/denominator
+    all_sub_scores = [lynch_sub, graham_sub, def_sub, de_sub, cr_sub,
+                      growth_g_sub, growth_stab_sub, score_safety]
+    present_sub_count = sum(1 for s in all_sub_scores if s is not None)
+    total_sub_count   = len(all_sub_scores)
+
+    for pillar_name, pillar_val in pillars.items():
+        if pillar_val is not None:
+            w = PILLAR_WEIGHTS[pillar_name]
+            weighted_sum  += pillar_val * w
+            total_weight  += w
+            present_count += 1
+
+    if total_weight > 0:
+        overall = round(weighted_sum / total_weight, 2)
+    else:
+        overall = None
+
+    coverage_pct = round(present_sub_count / total_sub_count * 100, 1) if total_sub_count > 0 else 0.0
+
+    return {
+        "overall":      overall,
+        "value":        round(score_value,   2) if score_value   is not None else None,
+        "quality":      round(score_quality, 2) if score_quality is not None else None,
+        "growth":       round(score_growth,  2) if score_growth  is not None else None,
+        "safety":       score_safety,
+        "coverage_pct": coverage_pct,
+    }
 
 
 # ═════════════════════════════════════════════
@@ -270,7 +645,7 @@ def get_combined_data(ticker: str) -> dict:
     # yfinance already reports per-Class-B-share EPS, so the fallback needs no scaling.
     if ticker in ("BRK-B", "BRK.B") and ttm_eps is not None:
         ttm_eps = ttm_eps / 1500.0
-    if not ttm_eps and yf_data["annual_eps"]:
+    if ttm_eps is None and yf_data["annual_eps"]:
         valid = [e for e in yf_data["annual_eps"] if e is not None and e == e]
         ttm_eps = valid[-1] if valid else None
 
@@ -287,7 +662,7 @@ def get_combined_data(ticker: str) -> dict:
     # Finnhub returns marketCapitalization in $millions
     mkt_cap_b = None
     fh_mktcap = _safe_float(fh.get("marketCapitalization"))
-    if fh_mktcap:
+    if fh_mktcap is not None:
         mkt_cap_b = fh_mktcap / 1000.0  # millions → billions
 
     # ── Balance sheet ratios (Finnhub direct) ───────────────────────
@@ -295,6 +670,17 @@ def get_combined_data(ticker: str) -> dict:
     debt_equity   = _safe_float(fh.get("totalDebt/totalEquityAnnual"))
     book_value_ps = _safe_float(fh.get("bookValuePerShareAnnual") or fh.get("bookValuePerShareQuarterly"))
     pb_ratio      = _safe_float(fh.get("pb"))
+
+    # ── FCF per share — read from already-fetched Finnhub bundle (D-04) ──
+    # No new HTTP request; reuses the metric=all bundle fetched above.
+    # Primary: freeCashFlowPerShareTTM; fallback: freeCashFlowPerShareAnnual.
+    # Field names are community-sourced [ASSUMED]; run diagnose_finnhub.py on
+    # the next live Actions run to confirm the exact key names in production.
+    # If both fields are absent, _safe_float returns None → Plan 02's trap gate
+    # runs on the other 3 inputs (D-01b: genuinely-missing path).
+    fcf_per_share = _safe_float(
+        fh.get("freeCashFlowPerShareTTM") or fh.get("freeCashFlowPerShareAnnual")
+    )
 
     return {
         "price":            price,
@@ -308,6 +694,7 @@ def get_combined_data(ticker: str) -> dict:
         "debt_equity":      debt_equity,
         "book_value_ps":    book_value_ps,
         "pb_ratio":         pb_ratio,
+        "fcf_per_share":    fcf_per_share,              # FCF sign for Plan 02 trap gate (D-04)
     }
 
 
@@ -367,6 +754,8 @@ def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     else:
         cat = "Fast"
     m["Lynch_Category"] = cat
+    # FV_GplusD treats Lynch_Score = 1.0 as the fair-value anchor (fair P/E = g + dy).
+    # Lynch_BuyPrice applies a category-specific margin-of-safety haircut (Slow=75%, etc.).
     m["Lynch_BuyPrice"] = round(m["FV_GplusD"] * LYNCH_DISCOUNT[cat], 2)
 
     # PEG status
@@ -422,6 +811,28 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
     """
     Compute Graham intrinsic value (both versions) and price bands.
     g is a whole-number percent, capped upstream.
+
+    FORMULA AUDIT (Phase 5, FIX-01) — do NOT "fix" these without reading this:
+
+    VA = eps * (8.5 + 2*g) * 4.4 / aaa_yield
+         This IS the canonical 1974 revised Graham formula from The Intelligent
+         Investor (Ch. 11).  8.5 = no-growth P/E, 2g = growth adjustment,
+         4.4 = Graham's 1963 AAA reference yield.  ✓ matches source definition.
+
+    VB = eps * (7 + g) * 4.4 / aaa_yield
+         This is a practitioner-conservative variant (NOT from Graham's book).
+         It uses a lower no-growth base P/E of 7 instead of Graham's 8.5, and
+         applies the growth multiplier once (not 2×).  This deliberately
+         produces lower fair values for quality franchises — which is the
+         intended conservative behavior.
+
+    FV = min(VA, VB)  → always picks the more conservative (lower) value.
+
+    AUDIT CONCLUSION: Both formulas are algebraically correct relative to their
+    definitions.  The "visibly wrong" buy prices are the expected output of a
+    conservative model: quality franchises trading at justified premiums
+    (e.g., KO at $70 with FV ≈ $28) will always show large negative discounts.
+    This is model conservatism, not a code defect.  See tests/test_valuation_fixture.py.
     """
     m = {}
 
@@ -430,13 +841,13 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
 
     g_capped = min(g, 15.0)  # Graham himself suggested capping at 15
 
-    # Version A — classic rate-adjusted
+    # Version A — classic 1974 rate-adjusted Graham formula (8.5 + 2g) × 4.4/Y
     m["Graham_VA"] = round(eps * (GRAHAM_NO_GROWTH_PE + 2 * g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
-    # Version B — conservative (lower base PE, single g multiplier)
+    # Version B — conservative practitioner variant: base P/E 7 + g (NOT from Graham's book)
     m["Graham_VB"] = round(eps * (7 + g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
-    # Use the more conservative (lower) of the two
+    # Use the more conservative (lower) of the two — intentional, see audit note above
     m["Graham_FV"] = min(m["Graham_VA"], m["Graham_VB"])
 
     # Price band
@@ -507,9 +918,13 @@ def graham_defensive_score(
         checks["PE_Limit"]  = 0
 
     # 8) P/B ≤ 1.5 OR P/E × P/B ≤ 22.5
+    # The P/E×P/B branch is only meaningful with positive current EPS; a negative
+    # EPS makes pe_cur negative and (pe_cur * pb) trivially ≤ 22.5, which would
+    # award a spurious point (mirrors criterion 7's eps_3yr_avg > 0 guard).
     if pb and pb > 0:
-        pe_cur = price / (valid_eps[-1] if valid_eps else 1)
-        checks["PB_Limit"]  = int(pb <= MAX_PB_GRAHAM or (pe_cur * pb) <= MAX_PE_X_PB)
+        cur_eps = valid_eps[-1] if valid_eps else None
+        pe_ok = cur_eps is not None and cur_eps > 0 and (price / cur_eps) * pb <= MAX_PE_X_PB
+        checks["PB_Limit"]  = int(pb <= MAX_PB_GRAHAM or pe_ok)
     else:
         checks["PB_Limit"]  = 0
 
@@ -577,13 +992,15 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         # Fallback: compute from yfinance EPS history
         g = compute_growth_5yr_cagr(fund["annual_eps"])
     if g is None:
+        # Truly absent growth data — no basis for valuation (D-01b: genuinely missing,
+        # distinct from a present-but-negative value which routes to WORST_DISCOUNT below).
         log.info(f"{ticker}: growth not computable, skipping valuation")
         row["Error"] = "Growth N/A"
         return row
     g = min(g, GROWTH_CAP)
-    if g <= 0:
-        log.info(f"{ticker}: negative/zero growth ({g:.1f}%), flooring to 1%")
-        g = 1.0
+    # D-01: negative/zero growth is present-but-terrible; do NOT floor or drop.
+    # lynch_metrics() will return {"error": ...} for g <= 0, which is intercepted
+    # below and routes to WORST_DISCOUNT so the ticker still ranks (at the bottom).
     row["Growth_g_Pct"] = round(g, 2)
     row["AAA_Yield"]    = aaa_yield
     row["MarketCap_B"]  = round(mkt_cap_b, 2) if mkt_cap_b else None
@@ -600,11 +1017,20 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     eps_3yr_avg = sum(valid_eps[-3:]) / len(valid_eps[-3:]) if len(valid_eps) >= 3 else None
 
     # ── Lynch ───────────────────────────────────────────────────────
+    # D-01: if negative/zero EPS or growth causes an error-return, retain the row
+    # with WORST_DISCOUNT so it ranks at the bottom rather than being dropped.
     lm = lynch_metrics(price, eps, g, dy)
+    if "error" in lm:
+        log.info(f"{ticker}: Lynch formula error ({lm['error']}), routing to WORST_DISCOUNT")
+        lm = {"Lynch_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Lynch_{k}": v for k, v in lm.items()})
 
     # ── Graham ──────────────────────────────────────────────────────
+    # D-01: same sentinel routing for Graham error returns.
     gm = graham_metrics(price, eps, g, aaa_yield, pb)
+    if "error" in gm:
+        log.info(f"{ticker}: Graham formula error ({gm['error']}), routing to WORST_DISCOUNT")
+        gm = {"Graham_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Graham_{k}": v for k, v in gm.items()})
 
     # ── Graham defensive score ───────────────────────────────────────
@@ -620,11 +1046,61 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     )
     row.update(ds)
 
-    # ── Combined score ───────────────────────────────────────────────
+    # ── Combined score (retained column — D-02c) ─────────────────────
     row["CombinedScore"] = combined_score(
         lm.get("Lynch_Discount_Pct"),
         gm.get("Graham_Discount_Pct"),
     )
+
+    # ── Growth stability — fraction of years with positive EPS ───────
+    # Derived from annual_eps history (Open Question 2 from RESEARCH.md).
+    # Formula: count of positive-EPS years / total available years.
+    # None when fewer than 3 years available (D-01b: genuinely missing).
+    # This reuses the EPS_Stability computation pattern already present in
+    # graham_defensive_score rather than introducing a new formula.
+    valid_eps_hist = [e for e in fund["annual_eps"] if e is not None and e == e]
+    if len(valid_eps_hist) >= 3:
+        pos_years   = sum(1 for e in valid_eps_hist if e > 0)
+        growth_stability = pos_years / len(valid_eps_hist)
+    else:
+        growth_stability = None
+
+    # ── Trap gate (TRAP-01 / D-04) ───────────────────────────────────
+    # EPS_Stability from graham_defensive_score: 0 if fewer than 8 of last
+    # 10 years had positive EPS, 1 otherwise.  A value of 0 trips the gate.
+    eps_stab_for_gate = ds.get("EPS_Stability")
+    is_trap, cov_fraction = trap_gate(
+        debt_equity   = fund["debt_equity"],
+        current_ratio = fund["current_ratio"],
+        eps_stability = eps_stab_for_gate,
+        fcf_per_share = fund["fcf_per_share"],
+    )
+
+    # ── Overall score (SCORE-01..08) ─────────────────────────────────
+    # Pass the audited discount values from lm/gm (already sentinel-routed
+    # to WORST_DISCOUNT for negative-input tickers via the D-01 intercepts
+    # above, so negative-input rows reach here and receive Value=0).
+    scores = overall_score(
+        lynch_discount   = lm.get("Lynch_Discount_Pct"),
+        graham_discount  = gm.get("Graham_Discount_Pct"),
+        defensive_score  = ds.get("DefensiveScore"),
+        debt_equity      = fund["debt_equity"],
+        current_ratio    = fund["current_ratio"],
+        growth_g         = g,
+        growth_stability = growth_stability,
+        is_trap          = is_trap,
+        coverage_fraction= cov_fraction,
+        aaa_yield        = aaa_yield,
+    )
+
+    # Merge flat score columns (additive — existing keys untouched, D-02c)
+    row["OverallScore"]   = scores["overall"]
+    row["score_value"]    = scores["value"]
+    row["score_quality"]  = scores["quality"]
+    row["score_growth"]   = scores["growth"]
+    row["score_safety"]   = scores["safety"]
+    row["is_trap"]        = is_trap
+    row["coverage_pct"]   = scores["coverage_pct"]
 
     # ── Show? — at least one Buy signal ─────────────────────────────
     buy_signals = {"Strong Buy", "Buy", "Deep Buy"}
@@ -645,8 +1121,11 @@ def run_screener(universe: pd.DataFrame, aaa_yield: float) -> pd.DataFrame:
         result["Indexes"] = row["indexes"]
         results.append(result)
     df = pd.DataFrame(results)
-    # Sort by CombinedScore descending (best opportunities first)
-    if "CombinedScore" in df.columns:
+    # Sort by OverallScore descending (SCORE-08 / D-02c).
+    # CombinedScore is retained as a column — only the sort key changes.
+    if "OverallScore" in df.columns:
+        df = df.sort_values("OverallScore", ascending=False, na_position="last")
+    elif "CombinedScore" in df.columns:
         df = df.sort_values("CombinedScore", ascending=False, na_position="last")
     return df
 
@@ -666,6 +1145,19 @@ def write_json(df: pd.DataFrame) -> None:
         sys.exit(1)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     rows = json.loads(df.to_json(orient="records"))
+    # Build nested scores object post-serialization (SCORE-05 / Pitfall 3).
+    # Constructing here rather than storing a dict in a DataFrame column avoids
+    # pandas dict-column edge cases (Pitfall 3 preferred approach).
+    for row in rows:
+        row["scores"] = {
+            "overall":      row.get("OverallScore"),
+            "value":        row.get("score_value"),
+            "quality":      row.get("score_quality"),
+            "growth":       row.get("score_growth"),
+            "safety":       row.get("score_safety"),
+            "coverage_pct": row.get("coverage_pct"),
+            "trap":         row.get("is_trap", False),
+        }
     payload = {
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "rows": rows,

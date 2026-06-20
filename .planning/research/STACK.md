@@ -1,267 +1,149 @@
-# Technology Stack Research: GitHub Pages Static Stock Screener
+# Stack Research — v2.0 Methodology Expansion
 
-**Project:** Lynch & Graham Screener — Static Frontend
-**Researched:** 2026-05-29
-**Research mode:** Ecosystem + Feasibility
-**Confidence basis:** Training data through August 2025. External tools (WebSearch, WebFetch, Bash) were unavailable in this environment. All claims marked with confidence level. The libraries covered here are mature and well-established; confidence is HIGH for all primary recommendations.
+**Domain:** Free-data static-hosting equity screener (Python pipeline → GitHub Pages dashboard)
+**Researched:** 2026-06-17
+**Confidence:** HIGH
 
----
+## Headline
 
-## Research Question Answers
+**No new third-party Python dependency is warranted, and no new paid API/credential is needed.** Every v2.0 signal is computable from (a) fields already inside the Finnhub `stock/metric?metric=all` bundle we currently fetch-and-discard, plus (b) a small number of *additional yfinance accessors on the Ticker we already construct per ticker* (`income_stmt` / `balance_sheet` / `cashflow`, and `history(period="5y")`). Math is pure arithmetic over pandas/numpy values already in the dependency tree. The only stack-shaped additions are: one numpy pin (currently transitive), two new static HTML pages reusing the existing Tabulator/vanilla-JS frontend, and a git-only snapshot step in GitHub Actions.
 
-### Q1: Best no-build static table library for ~550 rows / ~30 columns
+The dominant *risk* is not a missing library — it is **per-ticker runtime and Finnhub rate limits** once Piotroski/Altman pull multi-statement yfinance data across ~550 tickers. That is a sequencing/throttling concern, addressed below, not a new-dependency concern.
 
-**Recommendation: Tabulator 6.x**
+## Reuse-vs-new-fetch decision per signal
 
-Rationale: Tabulator is the only major table library designed from the ground up to work without a build step, with first-class CDN support, zero mandatory dependencies, and a rich feature set that matches every stated requirement. It is actively maintained, has an MIT license, and ships self-contained CSS + JS bundles via CDN.
+| Signal | Source decision | Concrete fields / accessors |
+|--------|-----------------|------------------------------|
+| 52w / 5y low distance + recency | **MIXED.** 52w high/low + dates already in Finnhub bundle (today). 5y low + week-of-low needs new yfinance history. | Finnhub: `52WeekLow`, `52WeekLowDate`, `52WeekHigh`, `52WeekHighDate`. 5y: `yf.Ticker(t).history(period="5y", interval="1wk")["Close"]` → `.min()`, `.idxmin()` for recency. |
+| FCF yield | **REUSE.** Already in bundle. | `freeCashFlowTTM` (or `freeCashFlowPerShareTTM` × shares) ÷ `marketCapitalization`. Inverse already present as `pfcfShareTTM`. |
+| EV / EBIT (Acquirer's Multiple) | **REUSE.** Already in bundle. | `enterpriseValue` (a.k.a. `ev`) ÷ (`ebitPerShareTTM` × shares). |
+| Magic Formula (earnings yield + ROIC) | **REUSE (degrade-gracefully).** | Earnings yield = `ebitPerShareTTM`/EV or `epsAnnual`/price. ROIC: prefer bundle `roicTTM`; fall back to `roiTTM`/`roaTTM` (free-tier population is inconsistent — see caveat). |
+| Shareholder yield | **REUSE + existing.** | Dividend already computed (`ttm_dps`/price). Net buyback proxy from bundle: change in `sharesOutstanding`/`shareOutstanding` series, or `currentEv/freeCashFlow` family; if absent, ship dividend-yield-only and flag low coverage. |
+| Piotroski F-Score (0–9) | **NEW FETCH (heaviest).** Needs ~2yr income + balance + cashflow. | `yf.Ticker(t).income_stmt`, `.balance_sheet`, `.cashflow` (annual, 2 most-recent columns). Some ratios (current ratio, gross margin, asset turnover) also derivable from Finnhub `*Annual` fields to reduce yfinance load. |
+| Altman Z-Score | **NEW FETCH (shared with Piotroski).** | Same `balance_sheet` (working capital, retained earnings, total assets/liabilities) + Finnhub `marketCapitalization` (market value of equity) + `enterpriseValue`/EBIT. Reuses the statements pulled for Piotroski — fetch once. |
+| Forward 2-stage DCF | **REUSE.** No new fetch. | Inputs already present: `freeCashFlowTTM` (or per-share), growth `g` (Finnhub CAGR, existing), discount = FRED AAA yield (already fetched) + equity-risk-premium constant. Pure arithmetic. |
+| Reverse DCF (solve implied g) | **REUSE.** No new fetch. | Same inputs; solve for `g` that makes DCF FV = current price. Closed-form-ish; if iterative, use stdlib (bisection) — **no scipy needed**. |
+| 4-pillar 0–100 composite | **REUSE.** Pure computation over the above. | Threshold constants in the existing `LYNCH_*`/`GRAHAM_*` config style. numpy for winsorize/clamp. |
 
-**Comparison matrix:**
+**Net new per-ticker fetches:** (1) `history(period="5y", interval="1wk")` and (2) the three annual financial statements (`income_stmt`/`balance_sheet`/`cashflow`) — fetched together, only when Piotroski/Altman are enabled (Phase C). Phases A–B add **zero** new network calls beyond what's already in the Finnhub bundle, because the bundle fields are already in the JSON we receive and throw away.
 
-| Library | Version | CDN support | Dependencies | Min bundle (JS+CSS) | Sort | Filter | Cell formatters | License |
-|---------|---------|------------|--------------|---------------------|------|--------|-----------------|---------|
-| **Tabulator** | 6.2 | YES (jsDelivr, unpkg) | None | ~200 KB | YES, built-in | YES, built-in | YES, built-in | MIT |
-| DataTables | 2.x | YES (CDN.datatables.net) | jQuery required | ~120 KB + jQuery (~90 KB) | YES | YES (extension) | YES | MIT |
-| AG Grid Community | 31+ | YES (unpkg, CDN) | None | ~700–900 KB | YES | YES | YES (cell renderers) | MIT (community) |
-| Grid.js | 6.x | YES (unpkg, CDN) | None | ~50 KB | YES | YES (plugin) | YES | MIT |
-| Handsontable | 14.x | YES | None | ~500 KB | YES | YES | YES | Non-commercial free / paid |
+## Finnhub `metric=all` fields we already receive and currently discard
 
-**Detailed verdicts:**
+The `get_finnhub_metrics()` call already returns the full `metric` object (~117 fields); `get_combined_data()` only reads ~9 of them. The following are present in the same response — **no extra call** to use them:
 
-**Tabulator 6.x — RECOMMENDED**
-- CDN install: one `<link>` and one `<script>` from jsDelivr, nothing else.
-- Built-in: multi-column sorting, header filters (text input, select, range), column formatters (color, icon, custom function), pagination, frozen columns.
-- `formatter` callback per column makes traffic-light coloring trivial — a function receives cell value, returns any HTML or sets background color directly via `cell.getElement().style`.
-- `ajaxURL` or `fetch`-then-`setData()` both work; for a same-origin JSON file, `fetch()` then `table.setData(data)` is the simpler pattern.
-- 550 rows × 30 columns is well within Tabulator's comfort zone without virtualization. Virtualization (`renderType: "virtual"`) is available if needed.
-- Confidence: HIGH
+| Field key | Used for |
+|-----------|----------|
+| `freeCashFlowTTM`, `freeCashFlowPerShareTTM`, `freeCashFlowAnnual` | FCF yield, DCF base FCF |
+| `pfcfShareTTM` | price/FCF (inverse FCF yield, cross-check) |
+| `enterpriseValue` / `ev` | EV/EBIT, EV/FCF |
+| `currentEv/freeCashFlowAnnual`, `currentEv/freeCashFlowTTM` | Acquirer-style EV/FCF (when populated) |
+| `ebitPerShareTTM`, `ebitdaPerShareTTM` | EV/EBIT, earnings yield |
+| `roiTTM`, `roicTTM`, `roaTTM`, `roeTTM` | Magic Formula ROIC, Quality pillar |
+| `grossMarginTTM`, `netProfitMarginTTM`, `operatingMarginTTM` | Piotroski margin trend, Quality |
+| `52WeekHigh`, `52WeekHighDate`, `52WeekLow`, `52WeekLowDate` | 52w distance + high-proximity trap flag |
+| `payoutRatioTTM`, `currentDividendYieldTTM` | Shareholder yield support |
+| `currentRatioAnnual`, `longTermDebt/equityAnnual`, `totalDebt/totalEquityAnnual`, `netInterestCoverageTTM` | Altman/Piotroski leverage & liquidity (avoids some statement parsing) |
 
-**DataTables 2.x — viable alternative, not recommended**
-- Requires jQuery. Adds ~90 KB with no functional benefit for this use case. The jQuery dependency is the main reason to prefer Tabulator.
-- Column search requires the `SearchBuilder` or `SearchPanes` extension (separate CDN load).
-- Extremely mature and battle-tested; good documentation. Choose this if jQuery is already on the page for another reason.
-- Confidence: HIGH
+**Caveat (MEDIUM confidence):** free-tier population of the derived fields (`roicTTM`, `currentEv/freeCashFlowTTM`, some `*PerShareTTM`) is **inconsistent across tickers** — some return `null`. This is fine: the existing `_safe_float()` → `None` pattern plus the locked "average over available metrics within a pillar, flag low coverage" rule handles it without new code shape. Do **not** treat any single field as guaranteed-present.
 
-**AG Grid Community — overkill, not recommended**
-- Bundle is 3–5x larger than Tabulator. Designed for enterprise row counts (100K+) and React/Angular/Vue integrations. Vanilla JS usage works but the API is more complex for the same features.
-- Community edition is MIT licensed; the enterprise edition requires a commercial license. CDN-only usage of community edition is fine.
-- Confidence: HIGH
+## Recommended Stack (additions/changes only)
 
-**Grid.js — viable for minimal setups, not recommended here**
-- Smallest bundle, very clean API. However, column-level filtering requires a plugin, and cell-level custom formatters (needed for traffic-light coloring) are less ergonomic than Tabulator's.
-- Better suited for simple read-only tables. The signal columns require per-cell color logic, which Tabulator handles more naturally.
-- Confidence: HIGH
+### Core Technologies (changes)
 
-**Handsontable — explicitly avoid**
-- License changed: free only for non-commercial use (GPL-style for open source, paid for commercial). A public GitHub Pages site tied to personal investing is likely fine legally, but it adds ambiguity not present with the MIT alternatives. Not worth the risk.
-- Confidence: HIGH (licensing is publicly documented)
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| Python | 3.11 | unchanged | Already pinned in `screener.yml`; no reason to bump. |
+| yfinance | `>=0.2.55,<1.0` (currently 0.2.66 installed) | Add `income_stmt`/`balance_sheet`/`cashflow`/`history` accessors for Piotroski, Altman, 5y low | Accessors stabilized in 0.2.5x to match the Yahoo site; a 1.x line now exists but is a major-version jump — **stay on 0.2.x for this milestone** to avoid an untested break in the production-proven pipeline. Tighten the floor from `0.2.40` to `0.2.55` so the statement-table key changes are present. |
+| numpy | `>=1.26,<3` (add explicit pin; 2.2.2 present transitively) | winsorize/clamp raw pillar inputs, vectorized threshold mapping | Already in the tree via pandas/yfinance; pin it explicitly because v2.0 code imports it directly. No new install on CI. |
 
----
+### Supporting Libraries
 
-### Q2: Is vanilla JS + CDN library viable for this scale?
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| pandas | `>=2.0.0` (unchanged) | Statement DataFrames, 5y resample, snapshot diffs | Already present; `income_stmt` etc. return DataFrames. |
+| (stdlib) `statistics` / hand-rolled bisection | n/a | Reverse-DCF implied-growth solve | Bisection over a monotonic DCF is ~15 lines — **avoid scipy**. |
+| (stdlib) `datetime`, `json`, `pathlib`, `shutil` | n/a | Snapshot file naming/copy in Actions | Already imported; `shutil.copyfile` for snapshots. |
 
-**Yes, definitively.**
+### Development Tools
 
-550 rows × 30 columns = 16,500 cells. This is not a large dataset by browser standards. Modern browsers handle DOM trees of this size without issue, especially with a table library that batches rendering. No framework (React, Vue, Svelte) is needed or beneficial here. Framework build pipelines exist to solve component reuse and reactivity at scale — neither applies to a static dashboard displaying a single daily snapshot.
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| GitHub Actions (existing `screener.yml`) | Add a periodic snapshot job/step | Already has `permissions: contents: write` and a git push step — extend, don't replace. |
+| Tabulator 6.4 (CDN, existing) | `top.html` / `stats.html` tables | Same library, same `results.json`; no new frontend dep, no build step. |
 
-Vanilla JS + Tabulator via CDN is the correct architecture. The full page can be written as a single `index.html` with an inline `<script>` block.
+## Installation
 
-Confidence: HIGH
+`requirements.txt` delta (the only file change for dependencies):
 
----
-
-### Q3: GitHub Pages deployment — `docs/` folder vs `gh-pages` branch
-
-**Recommendation: `docs/` folder on `main`**
-
-GitHub Pages offers three source configurations (as of 2024):
-1. Root of `main` (or any branch) — entire repo is served
-2. `/docs` subfolder of `main` — only the `docs/` directory is served
-3. A dedicated `gh-pages` branch — entire branch is served
-4. GitHub Actions deployment (writing to Pages via the Actions artifact API — the "modern" method)
-
-**For this project, use `docs/` on `main`.** Rationale:
-
-- The Python screener already commits `results.json` to the repo. Having the frontend in `docs/` means a single commit (from the Actions job) can update both the data file and be adjacent to the frontend files — all in one place, all versioned together.
-- No branch-switching complexity. The `gh-pages` branch approach requires either a dedicated orphan branch or tooling like `gh-pages` npm package to push to it — both add friction for a Python-only project.
-- `docs/` is simpler to reason about: `docs/index.html`, `docs/results.json`, done.
-- The Actions job writes `results.json` to `docs/results.json` (or the repo root `results.json` if you prefer to keep data outside `docs/`), commits, and pushes. Pages re-deploys automatically on push.
-
-**On the Actions artifact method (gh-pages via Actions):** GitHub introduced a first-party `actions/deploy-pages` action that uploads a Pages artifact from an Actions run without committing to the repo. This is cleaner for generated content but adds complexity (separate upload step, artifact retention). Since the goal is to have `results.json` committed and versioned in git anyway, the artifact method offers no advantage here.
-
-Confidence: HIGH (GitHub Pages configuration is well-documented and stable)
-
----
-
-### Q4: Fetching a local JSON file on GitHub Pages
-
-**Use `fetch('results.json')` with a relative path. No CORS issues.**
-
-GitHub Pages serves all files in the configured source directory from the same origin (`https://<user>.github.io/<repo>/`). A `fetch('results.json')` call from `index.html` in the same directory resolves to the same origin — CORS does not apply to same-origin requests.
-
-**Specific implementation notes:**
-
-- Place `results.json` in the same directory as `index.html` (both in `docs/`) and use `fetch('results.json')` — this is a relative URL, always same-origin.
-- If `results.json` is at the repo root and `index.html` is in `docs/`, use `fetch('../results.json')` — still same-origin, still no CORS.
-- `fetch()` works for all file types served by Pages; GitHub Pages serves `.json` with `Content-Type: application/json`, which is correct.
-- **Local development caveat:** `fetch()` fails for `file://` URLs due to browser security restrictions (this applies locally, not on Pages). During local dev, serve with `python -m http.server` from the `docs/` directory. This is the only local-dev tooling needed.
-- Avoid `XMLHttpRequest` — `fetch()` is the modern standard and is supported in all browsers that would access a GitHub Pages site.
-
-**Pattern:**
-```javascript
-fetch('results.json')
-  .then(r => r.json())
-  .then(data => {
-    table.setData(data);
-  });
+```text
+# changed
+yfinance>=0.2.55,<1.0     # was: yfinance>=0.2.40  — need stable statement accessors
+# added (explicit pin for direct import; already transitive)
+numpy>=1.26,<3
 ```
 
-Confidence: HIGH
+No `pip install` of any genuinely new package on CI. Frontend: zero installs (CDN).
 
----
+## Snapshot mechanism (git + Actions only — no new infra)
 
-### Q5: Licensing concerns for CDN-loaded libraries
+Locked decision 1b = weekly/monthly snapshots, **not daily**. Implement entirely in the existing workflow:
 
-**No concerns for the recommended stack.**
+1. **Storage layout:** `docs/data/snapshots/results-YYYY-MM-DD.json` (a copy of that run's `results.json`). Keeping snapshots under `docs/` means GitHub Pages can serve them later for the deferred trend/backtest work with zero extra hosting.
+2. **`.gitignore` gotcha (critical):** the repo ignores `*.json`. `docs/data/results.json` is already excepted; the snapshot path needs its own exception, e.g. `!docs/data/snapshots/*.json` (or `!docs/data/snapshots/`). Without this the snapshots will silently never commit — same trap called out in CLAUDE.md.
+3. **Cadence without daily noise:** the cron stays weekday-daily for `results.json`; gate the snapshot copy on a date condition (e.g. only on the first run of an ISO week / first business day of month) inside the Python writer or a small shell `if` in the workflow. A separate `schedule:` cron entry (`0 11 * * 1` for Mondays) feeding a `workflow_dispatch`-style flag is the cleaner option.
+4. **Commit:** extend the existing "Commit and push results" step to `git add docs/data/snapshots/` alongside `results.json`. The existing `git diff --cached --quiet` guard already prevents empty commits.
+5. **Min-row guard reuse:** snapshots should only be written *after* `write_json()` passes its `< 100 rows` abort, so a bad run never gets frozen into history.
 
-| Library | License | Public GitHub Pages OK? | Commercial restriction? |
-|---------|---------|------------------------|------------------------|
-| Tabulator 6.x | MIT | YES | No |
-| DataTables 2.x | MIT | YES | No |
-| AG Grid Community | MIT | YES | No |
-| Grid.js | MIT | YES | No |
-| jsDelivr CDN | Free tier | YES | None for open-source repos |
-| unpkg CDN | Free tier | YES | None |
+No database, no external object store, no new action — `actions/checkout@v4` + `setup-python@v5` + git push are sufficient.
 
-MIT license means: free to use, distribute, and modify in any project (commercial or non-commercial) as long as the license text is retained. Retention is automatic when loading from CDN — the library's own source includes the license header.
+## Rate-limit & runtime risk (the real constraint)
 
-**jsDelivr vs unpkg:** Both are free, reliable CDNs. jsDelivr has historically had better uptime SLAs and caches more aggressively. Either works. jsDelivr is preferred.
-
-Confidence: HIGH
-
----
-
-## Recommended Stack
-
-### Core
-
-| Technology | Version | Purpose | CDN URL |
-|------------|---------|---------|---------|
-| HTML5 | — | Page structure | — (no CDN) |
-| Vanilla JavaScript (ES2020+) | — | Table initialization, fetch, color logic | — (inline) |
-| Tabulator | 6.2+ | Interactive sortable/filterable table | jsDelivr (see below) |
-
-**CDN links for `<head>`:**
-```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.2.5/dist/css/tabulator.min.css">
-<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
-```
-(Pin to a specific minor version to avoid surprise breakage.)
-
-### File Layout
-
-```
-docs/
-  index.html        — single-page dashboard
-  results.json      — written by Python screener, committed by Actions job
-```
-
-No other files required. CSS can be inline in `index.html` for simplicity. Splitting to `style.css` is fine if the file grows.
-
-### GitHub Pages Configuration
-
-- Source: `docs/` folder on `main` branch
-- Set in repo Settings → Pages → Source → "Deploy from a branch" → branch: `main`, folder: `/docs`
-- No `_config.yml` needed (Jekyll not used)
-- Add a `.nojekyll` file at the repo root (or in `docs/`) to prevent GitHub Pages from running Jekyll processing on the directory — important if any folder names start with `_`
-
-### Color Coding Implementation
-
-The existing `SIGNAL_COLORS` dict in `stock_screener.py` maps column name → cell value → RGB. Mirror this in JavaScript as a plain object. Tabulator's `formatter` option per column receives the cell value and can set `cell.getElement().style.backgroundColor` directly.
-
-```javascript
-const SIGNAL_COLORS = {
-  "Lynch_Status": {
-    "Strong Buy": "#b6d7a8",
-    "Buy":        "#b6d7a8",
-    "Hold":       "#ffe599",
-    "Avoid":      "#ea9999",
-  },
-  // ... other signal columns
-};
-
-// In column definition:
-{
-  title: "Lynch Status",
-  field: "Lynch_Status",
-  formatter: function(cell) {
-    const val = cell.getValue();
-    const colors = SIGNAL_COLORS["Lynch_Status"];
-    if (colors && colors[val]) {
-      cell.getElement().style.backgroundColor = colors[val];
-    }
-    return val;
-  }
-}
-```
-
-The RGB values from Python (`_GREEN = {"red": 0.714, "green": 0.843, "blue": 0.659}`) convert to hex as `#b6d7a8` (multiply each channel by 255, round, format as hex). This conversion is a one-time manual step.
-
----
+| Concern | Detail | Mitigation |
+|---------|--------|-----------|
+| Finnhub free tier | 60 calls/min. Pipeline already does **1** `metric=all` call/ticker with a 250ms delay (~550 calls ≈ 2.3 min spread). **v2.0 adds no new Finnhub calls** if we mine the existing bundle. | Keep it to one Finnhub call/ticker. Do **not** add per-ticker Finnhub statement endpoints — use yfinance for statements instead. |
+| yfinance new fetches | `history(5y)` + 3 statement tables per ticker materially increase wall-clock and Yahoo throttling exposure across ~550 tickers (Phase C). Yahoo has no hard documented limit but rate-limits aggressively. | (a) Reuse the single `yf.Ticker(t)` object already built in `get_yf_price_and_history()` — fetch price, history, and statements from one Ticker, not four. (b) Phase C only. (c) Add modest backoff/retry; the existing per-ticker try/except-and-skip already degrades gracefully. |
+| Quarterly-data caching | Statements/5y-low change slowly (quarterly), but price/EPS change daily. Re-fetching statements every weekday is wasteful and raises throttle risk. | **Cache slow-moving fundamentals.** Recommended: a committed `docs/data/fundamentals_cache.json` keyed by ticker with a fetch date; refresh a row only if older than ~30 days. Honors the static/git-only constraint (no DB) and the `.gitignore` exception pattern (needs `!docs/data/fundamentals_cache.json`). This is the single highest-value optional add for keeping Phase C runtimes sane. |
+| Actions wall-clock | Free Actions minutes are ample for a few-minute job, but 550× extra yfinance round-trips could push runtime up. | Cache (above) keeps the steady-state run near v1.0 timings; only cache-cold tickers pay the statement-fetch cost. |
 
 ## Alternatives Considered
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Table library | Tabulator 6.x | DataTables 2.x | Requires jQuery; no functional advantage |
-| Table library | Tabulator 6.x | AG Grid Community | 3–5x larger bundle; enterprise-oriented API |
-| Table library | Tabulator 6.x | Grid.js | Per-cell color formatting is less ergonomic |
-| Deployment | `docs/` on `main` | `gh-pages` branch | Requires separate branch or npm tooling |
-| Deployment | `docs/` on `main` | Actions artifact upload | Extra complexity; no benefit since JSON is committed anyway |
-| Framework | None (vanilla JS) | React/Vue/Svelte | Requires build pipeline; overkill for a single static page |
-| Local dev server | `python -m http.server` | Node.js `live-server` | Python is already the project language; no extra installs |
-
----
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| Mine existing Finnhub bundle | Finnhub `/stock/financials-reported` per ticker | Never for this milestone — adds 550 Finnhub calls and blows the 60/min budget. |
+| yfinance statements | Finnhub financial-statement endpoints | Only if yfinance statement coverage proves unreliable for a pillar; even then, cache hard. |
+| Hand-rolled bisection for reverse DCF | scipy `brentq` | Never — scipy is a heavy new dep (numpy/BLAS) for a 15-line monotonic root-find. |
+| numpy winsorize | pandas-only clip | Either works; numpy chosen because it's already present and clamp/winsorize reads cleaner. Pure-pandas is an acceptable substitute if avoiding the explicit numpy pin. |
+| `docs/data/snapshots/*.json` in repo | git tags / separate orphan branch / external storage | Only if repo size becomes a problem after many months; weekly/monthly cadence keeps growth small (~tens of files/year). |
 
 ## What NOT to Use
 
-**React / Vue / Svelte / Angular**
-Any framework that requires `npm install` + a build step violates the stated constraint. The output is a static file; the data is static JSON; there is no state management problem to solve. Adding a framework would require Vite/webpack/Rollup, complicate the Actions pipeline, and provide zero user-visible benefit.
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| Any new paid API or credential | Constraint: zero new credentials; FRED+Finnhub free tiers cover everything | Existing FRED + Finnhub bundle + yfinance |
+| scipy | Heavy transitive weight for one root-find | stdlib bisection |
+| A database (sqlite/postgres) for snapshots or cache | Constraint: static hosting, no server/DB | Committed JSON files under `docs/data/` |
+| A JS framework (React/Vue) or any build step for `top.html`/`stats.html` | Constraint: no build step; v1.0 is vanilla JS + Tabulator CDN | Reuse Tabulator 6.4 CDN + vanilla JS, read the same `results.json` |
+| A second/new JSON output file at repo root | `.gitignore *.json` trap; extra schema surface | Extend existing `results.json` (already excepted) with new columns + nested `scores` object |
+| yfinance 1.x (major bump) this milestone | Unverified break risk in production-proven pipeline | Stay on yfinance 0.2.5x; defer 1.x to a dedicated upgrade pass |
+| Per-ticker Finnhub statement calls | Burns the 60/min free-tier budget across 550 tickers | yfinance statements + 30-day cache |
 
-**Handsontable**
-License ambiguity (GPL/commercial dual license). MIT alternatives exist with equivalent features.
+## Version Compatibility
 
-**Plotly / Chart.js / D3**
-Charting libraries, not table libraries. Useful if trend charts are added later (out of scope per PROJECT.md), but wrong tool for a sortable data table.
+| Package A | Compatible With | Notes |
+|-----------|-----------------|-------|
+| yfinance 0.2.55–0.2.66 | pandas 2.x, numpy 2.x | Statement accessors (`income_stmt`/`balance_sheet`/`cashflow`) stable in this band; `history(period=...)` unchanged for years. |
+| numpy 2.2.x | pandas 2.2.x | Both already resolve together in the current environment (verified locally). |
+| Tabulator 6.4 (CDN) | vanilla JS, `results.json` schema | Unchanged from v1.0; new pages add no version constraint. |
 
-**Jekyll/Liquid templates**
-GitHub Pages runs Jekyll by default. This project does not need Jekyll's template system. Add `.nojekyll` to opt out and keep the build chain simple.
+## Sources
 
-**Bootstrap Table / Semantic UI Table**
-These are CSS-only or CSS+JS table enhancements that add basic sorting. They lack built-in column filtering. Tabulator covers sorting, filtering, and cell formatting in one CDN load.
-
----
-
-## Confidence Assessment
-
-| Area | Confidence | Basis |
-|------|-----------|-------|
-| Tabulator as recommended library | HIGH | Mature library, stable since v5; v6 released 2023, CDN support is core feature |
-| DataTables/AG Grid/Grid.js comparison | HIGH | All are established libraries with stable APIs and documented CDN support |
-| GitHub Pages `docs/` folder approach | HIGH | Documented GitHub feature, stable since 2016, widely used |
-| `fetch()` same-origin behavior on Pages | HIGH | Standard browser behavior; not GitHub-specific |
-| Local dev `file://` fetch restriction | HIGH | Well-documented browser security restriction |
-| MIT licensing for all recommended libraries | HIGH | Publicly documented, verified against known license files |
-| 550-row performance without virtualization | HIGH | Browser DOM handles <10K rows without issue; Tabulator docs confirm |
-| jsDelivr reliability | MEDIUM | Good historical track record; CDN availability is always a minor operational risk |
+- Finnhub Basic Financials / `stock/metric` field reference — https://finnhub.io/docs/api/company-basic-financials — confirms `52WeekHigh/Low(+Date)`, `enterpriseValue`/`ev`, FCF & EV/FCF families, ROIC/ROI/ROA/ROE, `ebitPerShareTTM`. MEDIUM (page is JS-rendered; field set cross-checked below).
+- Robot Wealth, "Exploring the finnhub.io API" — https://robotwealth.com/finnhub-api/ — documents the `metric` object returning ~117 fundamental fields, confirming the bundle breadth we already receive. HIGH.
+- yfinance API reference (`Ticker.income_stmt`, `.balance_sheet`, `.cashflow`, `.history`) — https://ranaroussi.github.io/yfinance/reference/api/yfinance.Ticker.html — confirms the accessors and the 0.2.x table-format note. HIGH.
+- yfinance on PyPI (version availability: 0.2.66 installed, 1.4.1 latest) — https://pypi.org/project/yfinance/ — HIGH.
+- Existing codebase (`stock_screener.py`, `requirements.txt`, `.github/workflows/screener.yml`, CLAUDE.md gotchas) — primary source for what's already fetched/discarded and the git/Actions constraints. HIGH.
+- Locked decisions — `.planning/research/v2-METHODOLOGY-EXPANSION.md`. HIGH.
 
 ---
-
-## Gaps / Open Questions
-
-1. **Exact column list and types for Tabulator column definitions** — need to inspect what `process_ticker()` returns (all dict keys) to write the full column definitions array. This is implementation detail, not a stack question.
-
-2. **`results.json` schema** — the Python screener doesn't yet write JSON; the schema (array of objects vs object with metadata) should be decided when implementing the writer. Recommendation: plain array of row objects, one object per ticker, matching the DataFrame column names as keys. Tabulator's `setData()` accepts this directly.
-
-3. **Top 20 summary view** — PROJECT.md lists this as a requirement. It can be a second Tabulator instance filtered to the top 20 rows by `CombinedScore`, or a simple static HTML table pre-rendered. No additional library needed.
-
-4. **Pinning Tabulator version** — the CDN URL above uses `@6.2.5`. Verify the latest 6.x patch version at https://cdn.jsdelivr.net/npm/tabulator-tables/ before implementation and pin to that exact version.
+*Stack research for: v2.0 methodology-expansion signals on free-data static pipeline*
+*Researched: 2026-06-17*

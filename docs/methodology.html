@@ -12,8 +12,6 @@
   <header class="site-header">
     <span class="site-title">Lynch &amp; Graham Screener</span>
     <nav class="main-nav" aria-label="Site navigation">
-      <a href="index.html" class="nav-link">Dashboard</a>
-      <a href="methodology.html" class="nav-link active" aria-current="page">Methodology</a>
     </nav>
   </header>
 
@@ -310,8 +308,9 @@
       <p>
         Growth is sourced from Finnhub's pre-calculated 5-year EPS CAGR where available, falling
         back to a computed CAGR from yfinance annual EPS history. Growth is capped at 25% for Lynch
-        metrics and 15% for Graham metrics. If growth is negative it is floored at 1% so a
-        conservative valuation is still produced rather than skipping the ticker.
+        metrics and 15% for Graham metrics. Stocks with negative or zero growth cannot be valued by
+        these formulas; rather than being dropped, they are retained but assigned the worst-possible
+        value score so they rank at the bottom.
       </p>
 
       <h3>Primary References</h3>
@@ -324,7 +323,12 @@
 
   </main>
 
+  <!-- ── Shared primitives (buildNav) ── -->
+  <script src="app.js"></script>
+
   <script>
+    buildNav("methodology");
+
     var tabs = document.querySelectorAll('[role="tab"]');
 
     tabs.forEach(function(tab, i) {

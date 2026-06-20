@@ -57,10 +57,77 @@
 
 ---
 
-## v2 Requirements (Deferred)
+## v2.0 Requirements — Methodology Expansion & Scoring
+
+### Formula Correctness (prerequisite — must precede scoring)
+
+- [x] **FIX-01**: The deferred "Buy Price visibly wrong" formula bug is diagnosed (root cause identified) and corrected across Lynch buy price and Graham fair value, with a spot-check fixture for at least one hand-verified ticker
+- [x] **FIX-02**: The corrected discount fields (`Lynch_Discount_Pct`, `Graham_Discount_Pct`) are confirmed sane before any pillar consumes them
+
+### Composite Scoring Engine
+
+- [x] **SCORE-01**: A scoring module computes a 4-pillar absolute `OverallScore` (0–100) from Value / Quality / Growth / Safety pillars
+- [x] **SCORE-02**: Each raw metric maps to a bounded sub-score via configurable **absolute thresholds** (piecewise-linear bands), not cross-sectional ranks
+- [x] **SCORE-03**: Raw inputs are winsorized/clamped (both tails) before pillar aggregation so one glitch cannot dominate
+- [x] **SCORE-04**: Missing metrics are handled by averaging over *present* metrics within a pillar, emitting a per-row coverage flag; a missing safety input is treated as "unknown," never "safe"
+- [x] **SCORE-05**: `OverallScore` decomposes into pillar sub-scores exposed in `results.json` (flat columns + a nested `scores` object) and in the UI
+- [x] **SCORE-06**: Pillar weights and all thresholds live as version-controlled config constants; yield-based thresholds are rate-relativized to the live FRED AAA yield
+- [x] **SCORE-07**: Correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
+- [x] **SCORE-08**: `OverallScore` replaces `CombinedScore` as the primary sort key
+
+### Value-Trap Gating
+
+- [x] **TRAP-01**: An interim value-trap gate is computed from existing signals (debt/equity, current ratio, EPS stability, negative FCF) so a cheap-but-dying stock is flagged before any public Top-N ships
+- [ ] **TRAP-02**: A value-trap badge/flag is displayed on the Top-N page
+- [ ] **TRAP-03**: Altman Z and Piotroski F replace/augment the interim gate as the Safety-pillar driver once available
+
+### New Valuation Signals
+
+- [ ] **SIGNAL-01**: Distance below the 52-week high and above the 52-week low (%)
+- [ ] **SIGNAL-02**: Distance above the 5-year low (%)
+- [ ] **SIGNAL-03**: Weeks-since-52-week-low and weeks-since-5-year-low recency
+- [ ] **SIGNAL-04**: FCF yield (FCF / market cap)
+- [ ] **SIGNAL-05**: EV/EBIT (Acquirer's Multiple) and earnings yield (EBIT/EV)
+- [ ] **SIGNAL-06**: ROIC as an absolute Quality input (not the Greenblatt rank-sum)
+- [ ] **SIGNAL-07**: Shareholder yield (dividend + net buyback), with a low-coverage flag where share-count data is sparse
+- [ ] **SIGNAL-08**: Piotroski F-Score (0–9) from two years of financial statements
+- [ ] **SIGNAL-09**: Altman Z-Score (Z'' variant) with distress zones, used as a penalty/veto
+
+### Discounted Cash Flow
+
+- [ ] **DCF-01**: Forward two-stage DCF intrinsic value and discount % per ticker
+- [ ] **DCF-02**: Reverse DCF implied-growth vs actual-growth gap
+- [ ] **DCF-03**: DCF is sector-guarded (financials excluded, cyclicals flagged), asserts terminal-growth < discount-rate, and the reverse solver is bounded and emits `None` on non-convergence (never a silent default)
+
+### Sector Awareness
+
+- [ ] **SECTOR-01**: GICS sector is fetched per ticker and threaded through the pipeline as a row field
+- [ ] **SECTOR-02**: A per-metric sector applicability matrix governs which signals are valid per sector; invalid signals are treated as missing, never zero
+
+### New Frontend Pages
+
+- [ ] **PAGE-01**: `docs/top.html` Top 10/25 picks page (10/25 toggle), ranked by `OverallScore`, showing pillar sub-scores and headline signals
+- [ ] **PAGE-02**: `docs/stats.html` universe overview — score distribution, buy-signal counts, sector breakdown, and data-coverage stats
+- [ ] **PAGE-03**: A shared `docs/app.js` holds the fetch/format/color/freshness primitives reused across pages (no build step)
+- [ ] **PAGE-04**: The site nav links Dashboard, Top Picks, Stats, and Methodology across all pages
+
+### Historic Snapshots & Data
+
+- [ ] **DATA-01**: Periodic (weekly/monthly) snapshots of `results.json` are committed under `docs/data/snapshots/`, with the required `!docs/data/snapshots/*.json` `.gitignore` exception
+- [ ] **DATA-02**: The snapshot step reuses the min-row guard so no empty/partial snapshot is committed; a data-vintage caveat is documented
+- [ ] **DATA-03**: (Optional) A 30-day fundamentals cache bounds runtime/rate-limit for the heavy Phase-C statement fetches
+
+### Methodology Documentation
+
+- [ ] **METH-01**: `methodology.html` is updated to document the new signals, the 4-pillar absolute scoring, the thresholds, and the sector guards
+
+---
+
+## Future Requirements (Deferred beyond v2.0)
 
 - Advanced numeric range filters (min/max sliders per column)
-- Historical results archive — store one `results.json` snapshot per month, rolling 5-year window; display on a separate archive page or via a date picker on the dashboard
+- Backtest harness — validate the composite score against historic snapshots (locked decision: deferred, not a first/second-pass concern)
+- Archive-browsing UI — a date picker or archive page to view past snapshots (the snapshots themselves are produced in v2.0 by DATA-01; browsing them is deferred)
 - Column header auto-sizing — column widths should dynamically fit the header label text so no headers are clipped on initial load
 - Dark mode toggle
 - Column visibility picker (beyond Summary/Full preset)
@@ -119,3 +186,38 @@
 | CLN-02 | Phase 4 | Pending | Remove gspread/google-auth |
 | CLN-03 | Phase 4 | Pending | Remove GSHEET_* env vars |
 | CLN-04 | Phase 4 | Pending | Remove dead Tiingo config |
+| FIX-01 | Phase 5 | Complete 2026-06-19 | Buy Price bug — root cause documented (VB conservative base PE=7); KO fixture passing |
+| FIX-02 | Phase 5 | Complete 2026-06-19 | KO fixture confirms discounts sane; FIX-02 gate passed; Plan 02 may proceed |
+| SCORE-01 | Phase 5 | Complete | 4-pillar absolute OverallScore (Value/Quality/Growth/Safety) |
+| SCORE-02 | Phase 5 | Complete | Absolute-threshold piecewise-linear band mapping (not ranks) |
+| SCORE-03 | Phase 5 | Complete | Winsorize/clamp both tails before pillar aggregation |
+| SCORE-04 | Phase 5 | Complete | Average-over-present missing rule + coverage flag; missing safety = unknown |
+| SCORE-05 | Phase 5 | Complete | Pillar decomposition in flat columns + nested scores object + UI |
+| SCORE-06 | Phase 5 | Complete | Version-controlled weights/thresholds; yield thresholds rate-relativized to AAA |
+| SCORE-07 | Phase 5 | Complete | Group correlated Value metrics (avoid glorified cheapness rank) |
+| SCORE-08 | Phase 5 | Complete | OverallScore replaces CombinedScore as primary sort key |
+| TRAP-01 | Phase 5 | Complete | Interim value-trap gate from existing signals before public Top-N ships |
+| TRAP-02 | Phase 5 | Complete | Value-trap badge on Top-N cards (conditional on is_trap); in-browser visual deferred to next Actions run |
+| PAGE-01 | Phase 5 | Complete | docs/top.html Top 10/25 picks page (10/25 toggle, OverallScore/pillar cards) |
+| PAGE-03 | Phase 5 | Complete | Shared docs/app.js fetch/format/color/freshness/buildNav primitives |
+| PAGE-04 | Phase 5 | Complete | Site nav (3 links: Dashboard, Top Picks, Methodology; Stats deferred to Phase 7) |
+| SECTOR-01 | Phase 6 | Pending | GICS sector per ticker as row field — prereq for Phase 7 guards |
+| SIGNAL-01 | Phase 6 | Pending | Distance below 52w high / above 52w low (%) |
+| SIGNAL-02 | Phase 6 | Pending | Distance above 5-year low (%) |
+| SIGNAL-03 | Phase 6 | Pending | Weeks-since-52w-low / weeks-since-5y-low recency |
+| SIGNAL-04 | Phase 6 | Pending | FCF yield (FCF / market cap) |
+| SIGNAL-05 | Phase 6 | Pending | EV/EBIT (Acquirer's Multiple) + earnings yield (EBIT/EV) |
+| SIGNAL-06 | Phase 6 | Pending | ROIC as absolute Quality input (not Greenblatt rank-sum) |
+| SIGNAL-07 | Phase 6 | Pending | Shareholder yield (dividend + net buyback) + low-coverage flag |
+| SIGNAL-08 | Phase 7 | Pending | Piotroski F-Score (0–9) from 2yr statements |
+| SIGNAL-09 | Phase 7 | Pending | Altman Z-Score (Z'' variant) distress zones — penalty/veto |
+| TRAP-03 | Phase 7 | Pending | Altman Z + Piotroski upgrade interim gate as Safety driver |
+| DCF-01 | Phase 7 | Pending | Forward two-stage DCF intrinsic value + discount % |
+| DCF-02 | Phase 7 | Pending | Reverse DCF implied-vs-actual-growth gap |
+| DCF-03 | Phase 7 | Pending | DCF sector-guarded, terminal-g < discount-rate assert, bounded solver → None |
+| SECTOR-02 | Phase 7 | Pending | Per-metric sector applicability matrix; invalid = missing, never zero |
+| PAGE-02 | Phase 7 | Pending | docs/stats.html universe overview |
+| DATA-01 | Phase 7 | Pending | Periodic snapshots under docs/data/snapshots/ + .gitignore exception |
+| DATA-02 | Phase 7 | Pending | Snapshot reuses min-row guard; data-vintage caveat documented |
+| DATA-03 | Phase 7 | Pending | (Optional) 30-day fundamentals cache bounds runtime/rate-limit |
+| METH-01 | Phase 7 | Pending | methodology.html documents new signals, scoring, thresholds, guards |

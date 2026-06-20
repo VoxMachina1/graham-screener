@@ -8,6 +8,19 @@ A daily-automated value stock screener that applies Peter Lynch and Benjamin Gra
 
 A public, shareable URL that shows today's Lynch/Graham buy signals — no Google account, no friction, just open the link.
 
+## Current Milestone: v2.0 Methodology Expansion & Scoring
+
+**Goal:** Move the screener from binary Lynch/Graham buy-signals to a multi-factor, absolute 0–100 ranking, with new valuation signals and dedicated Top-Picks and Stats pages.
+
+**Target features:**
+- 4-pillar absolute `OverallScore` (Value/Quality/Growth/Safety) replacing the naive `CombinedScore` — preceded by fixing the deferred Buy Price formula bug
+- New valuation signals: 52-week / 5-year low distance + recency, FCF yield, EV/EBIT (Acquirer's Multiple), Magic Formula, Piotroski F-Score, Altman Z-Score, forward + reverse DCF
+- `docs/top.html` — Top 10/25 picks page (mockup approved 2026-06-17)
+- `docs/stats.html` — universe overview / stats page
+- Periodic (weekly/monthly) historic snapshots of `results.json`
+
+**Key context:** Absolute thresholds chosen over relative percentile ranks (comparability across snapshots). Backtest harness deferred. Phase A (score foundation + Top-N from existing metrics) is the first executable phase. Full research and locked decisions in `.planning/research/v2-METHODOLOGY-EXPANSION.md`.
+
 ## Requirements
 
 ### Validated
@@ -24,19 +37,17 @@ These exist and work in the current codebase:
 - ✓ Blend Lynch and Graham signals into a combined score, sorted best-first — existing
 - ✓ Run full pipeline on GitHub Actions schedule (weekdays, 6am ET) — existing
 
+These shipped in v1.0 (phases 1–4):
+
+- ✓ GitHub Actions writes and auto-pushes `results.json` to the repo — v1.0
+- ✓ GitHub Pages hosts an interactive dashboard with sortable/filterable table — v1.0
+- ✓ Traffic-light color coding on signal cells — v1.0
+- ✓ Summary preset view and methodology documentation page — v1.0
+- ✓ Removed all Google dependencies and Tiingo dead config — v1.0
+
 ### Active
 
-The migration target — what we're building:
-
-- [ ] GitHub Actions job writes screener results as `results.json` committed to the repo
-- [ ] GitHub Actions job auto-pushes the updated data file after each run
-- [ ] GitHub Pages hosts an interactive dashboard at the project's Pages URL
-- [ ] Dashboard: sortable, filterable results table with all signal columns
-- [ ] Dashboard: traffic-light color coding (green/yellow/red) on signal cells
-- [ ] Dashboard: Top 20 buy signals summary view
-- [ ] Dashboard: methodology documentation page (Lynch/Graham formulas, signal definitions)
-- [ ] Remove all Google dependencies (gspread, google-auth, service account credentials, GSHEET_* secrets)
-- [ ] Remove Tiingo dead config (TIINGO_API_KEYS, TIINGO_DELAY_SEC misleading constant)
+The v2.0 milestone targets — see "Current Milestone" above and `.planning/REQUIREMENTS.md`.
 
 ### Out of Scope
 
@@ -91,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-29 after initialization*
+*Last updated: 2026-06-17 — milestone v2.0 started*

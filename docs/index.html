@@ -27,8 +27,6 @@
   <header class="site-header">
     <span class="site-title">Lynch &amp; Graham Screener</span>
     <nav class="main-nav" aria-label="Site navigation">
-      <a href="index.html" class="nav-link active" aria-current="page">Dashboard</a>
-      <a href="methodology.html" class="nav-link">Methodology</a>
     </nav>
     <span class="freshness-badge" id="freshness-badge">Loading data&hellip;</span>
   </header>
@@ -69,77 +67,15 @@
   <!-- ── Tabulator 6.4.0 core JS ── -->
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.4.0/dist/js/tabulator.min.js"></script>
 
+  <!-- ── Shared primitives (SIGNAL_COLORS, formatters, buildNav) ── -->
+  <script src="app.js"></script>
+
   <script>
   /* ─────────────────────────────────────────────────────────────────────────
      Lynch & Graham Screener — Dashboard JS
-     All logic inline; no external JS files.
+     Shared primitives (SIGNAL_COLORS, formatters, buildNav) live in app.js,
+     loaded before this script.
   ───────────────────────────────────────────────────────────────────────── */
-
-  // ── Nord Aurora signal color map ──────────────────────────────────────────
-  // Keys are ACTUAL JSON column names (D-14). Values are "green"|"yellow"|"red".
-  const SIGNAL_COLORS = {
-    Lynch_Lynch_Status: {
-      "Strong Buy": "green", "Buy": "green",
-      "Hold": "yellow", "Avoid": "red"
-    },
-    Lynch_Lynch_PEG_Band: {
-      "Strong Buy": "green", "Buy": "green",
-      "Hold": "yellow", "Avoid": "red"
-    },
-    Graham_Graham_Status: {
-      "Deep Buy": "green", "Buy": "green",
-      "Watch": "yellow", "Avoid": "red"
-    },
-    DefensiveLabel: {
-      "Pass": "green", "Borderline": "yellow", "Fail": "red"
-    },
-    Lynch_PEG_Status: {
-      "Cheap": "green", "Reasonable": "yellow", "Rich": "red"
-    },
-    Lynch_PEGY_Status: {
-      "Cheap": "green", "Reasonable": "yellow", "Rich": "red"
-    }
-  };
-
-  const COLOR_STYLES = {
-    green:  { bg: "#a3be8c", text: "#2e3440" },
-    yellow: { bg: "#ebcb8b", text: "#2e3440" },
-    red:    { bg: "#bf616a", text: "#eceff4" }
-  };
-
-  // ── Formatter: signal columns ──────────────────────────────────────────────
-  function makeSignalFormatter(field) {
-    return function(cell) {
-      const val = cell.getValue();
-      if (val === null || val === undefined || val === "") return "—";
-      const colorKey = (SIGNAL_COLORS[field] || {})[val];
-      if (colorKey) {
-        const el = cell.getElement();
-        el.style.backgroundColor = COLOR_STYLES[colorKey].bg;
-        el.style.color = COLOR_STYLES[colorKey].text;
-        el.style.fontWeight = "600";
-        el.style.textAlign = "center";
-      }
-      return val;
-    };
-  }
-
-  // ── Formatter: numeric columns (null → em dash, fixed decimals) ───────────
-  function numFmt(decimals) {
-    return function(cell) {
-      const val = cell.getValue();
-      if (val === null || val === undefined) return "—";
-      if (typeof val === "number" && isNaN(val)) return "—";
-      return typeof val === "number" ? val.toFixed(decimals) : val;
-    };
-  }
-
-  // ── Formatter: percentage columns ─────────────────────────────────────────
-  function pctFmt(cell) {
-    const val = cell.getValue();
-    if (val === null || val === undefined) return "—";
-    return typeof val === "number" ? val.toFixed(1) + "%" : val;
-  }
 
   // ── Column definitions ─────────────────────────────────────────────────────
   function buildColumns() {
@@ -149,7 +85,7 @@
 
     return [
       // ── Identity ──────────────────────────────────────────────────────────
-      { title: "Ticker",       field: "Ticker",       frozen: true,  sorter: "string", formatter: function(cell) { var t = cell.getValue(); return '<a href="https://finviz.com/quote.ashx?t=' + t + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">' + t + '</a>'; }, ...txt },
+      { title: "Ticker",       field: "Ticker",       frozen: true,  sorter: "string", formatter: function(cell) { var t = escHtml(String(cell.getValue() == null ? "" : cell.getValue())); var href = "https://finviz.com/quote.ashx?t=" + encodeURIComponent(cell.getValue() == null ? "" : cell.getValue()); return '<a href="' + href + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">' + t + '</a>'; }, ...txt },
       { title: "Price",        field: "Price",        sorter: "number", formatter: numFmt(2), ...num },
       { title: "Mkt Cap ($B)", field: "MarketCap_B",  sorter: "number", formatter: numFmt(2), ...num },
       { title: "EPS TTM",      field: "EPS_TTM",      sorter: "number", formatter: numFmt(2), ...num },
@@ -208,6 +144,18 @@
       { title: "Defensive",    field: "DefensiveLabel", sorter: "string",
         formatter: makeSignalFormatter("DefensiveLabel"), ...drop },
 
+      // ── Overall Score + pillar sub-scores (Phase 5) ──────────────────────
+      { title: "Overall Score", field: "OverallScore",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Value",         field: "score_value",   sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Quality",       field: "score_quality", sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Growth",        field: "score_growth",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Safety",        field: "score_safety",  sorter: "number", formatter: numFmt(1), ...num },
+      { title: "Trap?",         field: "is_trap",       sorter: "boolean",
+        formatter: function(cell) { return cell.getValue() ? "Yes" : "—"; },
+        headerFilter: "list",
+        headerFilterParams: { values: { "true": "Yes", "false": "—", "": "All" }, clearable: true }
+      },
+
       // ── Combined ──────────────────────────────────────────────────────────
       { title: "Score",        field: "CombinedScore",  sorter: "number", formatter: numFmt(2), ...num },
 
@@ -224,7 +172,7 @@
 
   // ── Summary preset columns (D-01 — locked) ────────────────────────────────
   const SUMMARY_COLS = new Set([
-    "Ticker", "Price", "CombinedScore",
+    "Ticker", "Price", "OverallScore", "is_trap", "CombinedScore",
     "Lynch_Lynch_Status", "Lynch_Lynch_Score", "Lynch_Lynch_BuyPrice",
     "Lynch_PEG_Status", "Lynch_PEGY_Status",
     "Graham_Graham_Status", "Graham_Graham_Discount_Pct", "Graham_Graham_FV",
@@ -234,20 +182,6 @@
   // ── Error-row filter (module scope — removeFilter needs same reference) ───
   function noErrorFilter(data) {
     return data.Error === null || data.Error === undefined;
-  }
-
-  // ── Freshness badge and stale-data banner ─────────────────────────────────
-  function updateFreshnessUI(generatedAt) {
-    const badge  = document.getElementById("freshness-badge");
-    const banner = document.getElementById("stale-banner");
-    if (!generatedAt) { badge.textContent = "Data date unknown"; return; }
-
-    const dt      = new Date(generatedAt);
-    const dateStr = dt.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-    badge.textContent = "Data as of " + dateStr;
-
-    const ageDays = (Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24);
-    if (ageDays > 3) banner.classList.add("visible");
   }
 
   // ── Column preset apply ───────────────────────────────────────────────────
@@ -269,6 +203,7 @@
     })
     .then(function(data) {
       updateFreshnessUI(data.generated_at);
+      buildNav("dashboard");
 
       const cols = buildColumns();
       const allFields = cols.map(function(c) { return c.field; });
@@ -278,7 +213,7 @@
         layout: "fitDataTable",
         height: "calc(100vh - 140px)",
         renderVertical: "virtual",
-        initialSort: [{ column: "CombinedScore", dir: "desc" }],
+        initialSort: [{ column: "OverallScore", dir: "desc" }],
         columns: cols,
       });
 
