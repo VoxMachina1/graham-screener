@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Methodology Expansion & Scoring
 status: completed
-stopped_at: Phase 5 complete (code); paused for live validation before Phase 6
-last_updated: "2026-06-20T00:51:59.574Z"
+stopped_at: Phase 5.1 corrective fixes applied (growth anchoring + trap EPS window); re-validate live before Phase 6
+last_updated: "2026-06-20T17:27:54.918Z"
 last_activity: 2026-06-19 -- Phase 5 Plan 03 complete; docs/app.js shared module, docs/top.html Top-N ranked-card page, dashboard OverallScore/pillar/Trap columns, 3-link buildNav() across all pages
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 8
-  completed_plans: 8
+  completed_plans: 9
   percent: 71
 ---
 
@@ -97,7 +97,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-20T00:51:59.565Z
-Stopped at: Phase 5 complete (code); paused for live validation before Phase 6
-Resume file: .planning/phases/05-score-foundation-public-top-n/05-VERIFICATION.md
+Last session: 2026-06-20T17:27:54.909Z
+Stopped at: Phase 5.1 corrective fixes applied (growth anchoring + trap EPS window); re-validate live before Phase 6
+Resume file: .planning/phases/05-score-foundation-public-top-n/05.1-FIXES-SUMMARY.md
 Next: `/gsd-plan-phase 6` (Cheap Factors + Sector — GICS sector field + distance-from-low + FCF yield + EV/EBIT + ROIC + shareholder yield)

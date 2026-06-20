@@ -25,6 +25,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Milestone v2.0 — Methodology Expansion & Scoring
 
 - [x] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav (completed 2026-06-19)
+  - [x] **Phase 5.1 (INSERTED): Corrective fixes** - Post-live-validation: anchored growth to the realized EPS CAGR (Finnhub `epsGrowth5Y` was inflated → fake 25% growers) and made the trap gate's EPS-stability check window-aware (8-of-10 rule was structurally 0 on 4-yr data → trap tripped for 100% of tickers / dead Safety pillar). See `phases/05-score-foundation-public-top-n/05.1-FIXES-SUMMARY.md` (completed 2026-06-20)
 - [ ] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
 - [ ] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs
 
