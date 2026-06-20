@@ -645,7 +645,7 @@ def get_combined_data(ticker: str) -> dict:
     # yfinance already reports per-Class-B-share EPS, so the fallback needs no scaling.
     if ticker in ("BRK-B", "BRK.B") and ttm_eps is not None:
         ttm_eps = ttm_eps / 1500.0
-    if not ttm_eps and yf_data["annual_eps"]:
+    if ttm_eps is None and yf_data["annual_eps"]:
         valid = [e for e in yf_data["annual_eps"] if e is not None and e == e]
         ttm_eps = valid[-1] if valid else None
 
@@ -662,7 +662,7 @@ def get_combined_data(ticker: str) -> dict:
     # Finnhub returns marketCapitalization in $millions
     mkt_cap_b = None
     fh_mktcap = _safe_float(fh.get("marketCapitalization"))
-    if fh_mktcap:
+    if fh_mktcap is not None:
         mkt_cap_b = fh_mktcap / 1000.0  # millions → billions
 
     # ── Balance sheet ratios (Finnhub direct) ───────────────────────
@@ -918,9 +918,13 @@ def graham_defensive_score(
         checks["PE_Limit"]  = 0
 
     # 8) P/B ≤ 1.5 OR P/E × P/B ≤ 22.5
+    # The P/E×P/B branch is only meaningful with positive current EPS; a negative
+    # EPS makes pe_cur negative and (pe_cur * pb) trivially ≤ 22.5, which would
+    # award a spurious point (mirrors criterion 7's eps_3yr_avg > 0 guard).
     if pb and pb > 0:
-        pe_cur = price / (valid_eps[-1] if valid_eps else 1)
-        checks["PB_Limit"]  = int(pb <= MAX_PB_GRAHAM or (pe_cur * pb) <= MAX_PE_X_PB)
+        cur_eps = valid_eps[-1] if valid_eps else None
+        pe_ok = cur_eps is not None and cur_eps > 0 and (price / cur_eps) * pb <= MAX_PE_X_PB
+        checks["PB_Limit"]  = int(pb <= MAX_PB_GRAHAM or pe_ok)
     else:
         checks["PB_Limit"]  = 0
 
