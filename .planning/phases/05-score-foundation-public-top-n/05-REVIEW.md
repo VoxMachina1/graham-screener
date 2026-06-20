@@ -19,6 +19,8 @@ findings:
   info: 4
   total: 10
 status: issues_found
+fixed: critical_warning
+fixed_findings: [CR-01, WR-01, WR-02, WR-03, WR-04, WR-05]
 ---
 
 # Phase 5: Code Review Report
@@ -52,6 +54,8 @@ explicitly removed this phase.
 ## Critical Issues
 
 ### CR-01: Unescaped ticker injected into dashboard HTML (XSS)
+
+**Status:** Fixed (cb16390) — shared `escHtml` added to `app.js`; `index.html` formatter now escapes the value and `encodeURIComponent`s the href.
 
 **File:** `docs/index.html:88`
 **Issue:** The Tabulator "Ticker" column uses a custom formatter that builds raw
@@ -89,6 +93,8 @@ formatter: function(cell) {
 
 ### WR-01: `escHtml` does not escape double quotes, breaking the finviz href
 
+**Status:** Fixed (c8c2d84) — shared `escHtml` now escapes `"` and `'`; `top.html` `encodeURIComponent`s the ticker in the finviz URL.
+
 **File:** `docs/top.html:88-90`, used at `docs/top.html:113` and `118`
 **Issue:** `escHtml` only replaces `&`, `<`, `>`. The escaped ticker is also
 concatenated into an attribute context: `finvizHref = "...t=" + ticker` then
@@ -108,6 +114,8 @@ var finvizHref = "https://finviz.com/quote.ashx?t=" + encodeURIComponent(ticker)
 ```
 
 ### WR-02: Defensive P/B check grants a spurious point on negative EPS
+
+**Status:** Fixed (838bb68) — P/E×P/B branch now requires `cur_eps > 0`.
 
 **File:** `stock_screener.py:921-923`
 **Issue:** In `graham_defensive_score`, criterion 8 computes
@@ -131,6 +139,8 @@ else:
 
 ### WR-03: methodology.html documents removed negative-growth flooring
 
+**Status:** Fixed (76bd6b9) — replaced the flooring sentence with the WORST_DISCOUNT retention description.
+
 **File:** `docs/methodology.html:308-313`
 **Issue:** The Data Sources panel states: *"If growth is negative it is floored
 at 1% so a conservative valuation is still produced rather than skipping the
@@ -150,6 +160,8 @@ rank at the bottom rather than being dropped."
 
 ### WR-04: Truthiness fallback can misroute a legitimate zero from `_safe_float`
 
+**Status:** Fixed (838bb68) — `ttm_eps is None` and `fh_mktcap is not None`. Line 982 left as-is: `dps` is coalesced to `0.0` (never `None`) and `> 0` already yields a correct 0% for zero dividends.
+
 **File:** `stock_screener.py:648` (`if not ttm_eps`), `665` (`if fh_mktcap`), `982`
 **Issue:** `_safe_float` returns `0.0` for a real zero. Several gates use truthy
 checks (`if not ttm_eps and ...`, `if fh_mktcap:`, `float(dps) > 0`) that treat
@@ -163,6 +175,8 @@ e.g. `if ttm_eps is None and yf_data["annual_eps"]:` and
 `if fh_mktcap is not None:`.
 
 ### WR-05: Frontend re-sort uses `|| 0`, collapsing 0 and null/NaN scores
+
+**Status:** Fixed (c8c2d84) — null/undefined/NaN scores now coerce to `-Infinity` so they sort last.
 
 **File:** `docs/top.html:181-183`
 **Issue:** `allRows.sort(function(a,b){ return (b.OverallScore || 0) - (a.OverallScore || 0); })`
