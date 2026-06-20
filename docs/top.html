@@ -84,10 +84,7 @@
            escHtml(String(value)) + '</span>';
   }
 
-  // ── Minimal HTML-escape for ticker symbols and signal values ─────────────
-  function escHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
+  // escHtml is provided by app.js (escapes & < > " ' for HTML/attribute safety).
 
   // ── Render top N cards into #top-container ────────────────────────────────
   function renderTopN(rows, n) {
@@ -109,8 +106,9 @@
       var score = r.OverallScore === null || r.OverallScore === undefined ? null : r.OverallScore;
       var style = scoreBadgeStyle(score);
       var scoreText = score !== null ? score.toFixed(1) : "—";
-      var ticker = escHtml(String(r.Ticker || ""));
-      var finvizHref = "https://finviz.com/quote.ashx?t=" + ticker;
+      var rawTicker = r.Ticker == null ? "" : String(r.Ticker);
+      var ticker = escHtml(rawTicker);
+      var finvizHref = "https://finviz.com/quote.ashx?t=" + encodeURIComponent(rawTicker);
 
       // Row 1: rank, ticker, price, score badge, trap badge
       var row1 = '<div class="card-row">' +
@@ -179,7 +177,11 @@
       allRows = (data.rows || [])
         .filter(function(r) { return r.Error === null || r.Error === undefined; })
         .sort(function(a, b) {
-          return (b.OverallScore || 0) - (a.OverallScore || 0);
+          // null/undefined/NaN scores sort last (mirrors Python na_position="last");
+          // a legitimate worst-case score of 0 must not tie with a missing score.
+          var av = (typeof a.OverallScore === "number" && !isNaN(a.OverallScore)) ? a.OverallScore : -Infinity;
+          var bv = (typeof b.OverallScore === "number" && !isNaN(b.OverallScore)) ? b.OverallScore : -Infinity;
+          return bv - av;
         });
 
       renderTopN(allRows, currentN);
