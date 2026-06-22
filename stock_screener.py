@@ -588,6 +588,203 @@ def _safe_float(v) -> float | None:
         return None
 
 
+# ── Phase 6 yfinance candidate label lists (module-level constants) ───────────
+
+OCF_LABELS = [
+    "Operating Cash Flow",
+    "Total Cash From Operating Activities",
+    "Cash Flow From Operations",
+    "Cash From Operating Activities",
+]
+
+CAPEX_LABELS = [
+    "Capital Expenditure",
+    "Capital Expenditures",
+    "Purchase Of Property Plant And Equipment",
+    "Acquisition Of Property Plant Equipment And Software",
+]
+
+EBIT_LABELS = [
+    "EBIT",
+    "Operating Income",
+    "Ebit",
+    "Total Operating Income As Reported",
+]
+
+TOTAL_DEBT_LABELS = [
+    "Total Debt",
+    "Long Term Debt And Capital Lease Obligation",
+    "Long Term Debt",
+]
+
+CURRENT_DEBT_LABELS = [
+    "Current Debt",
+    "Current Portion Of Long Term Debt",
+    "Short Long Term Debt",
+]
+
+CASH_LABELS = [
+    "Cash And Cash Equivalents",
+    "Cash Cash Equivalents And Short Term Investments",
+    "Cash And Short Term Investments",
+]
+
+EQUITY_LABELS = [
+    "Stockholders Equity",
+    "Total Stockholders Equity",
+    "Common Stock Equity",
+    "Total Equity Gross Minority Interest",
+]
+
+SHARES_LABELS = [
+    "Ordinary Shares Number",
+    "Share Issued",
+    "Common Stock Shares Outstanding",
+]
+
+
+# ── Phase 6 pure helpers (internal — for tests only per CLAUDE.md §B) ─────────
+
+def _yf_row(df, labels) -> float | None:
+    """
+    Return the most-recent annual value for the first matching label, or None.
+    Newest column is index 0 (yfinance default sort — newest-first).
+    internal — for tests only.
+    """
+    if df is None or df.empty:
+        return None
+    for label in labels:
+        if label in df.index:
+            return _safe_float(df.loc[label, df.columns[0]])
+    return None
+
+
+def _compute_price_signals(closes, price) -> dict:
+    """
+    Compute five distance/recency signals from a pandas Close series and current price.
+    Returns dict with keys: dist_52w_high, dist_52w_low, dist_5y_low,
+    weeks_since_52w_low, weeks_since_5y_low, short_history.
+    internal — for tests only.
+    """
+    none_result = {
+        "dist_52w_high":     None,
+        "dist_52w_low":      None,
+        "dist_5y_low":       None,
+        "weeks_since_52w_low": None,
+        "weeks_since_5y_low":  None,
+        "short_history":     False,
+    }
+    if closes is None or len(closes) == 0:
+        return none_result
+
+    n = len(closes)
+    if n < 8:
+        return none_result
+
+    short_history = n < 52
+
+    # 52-week window = last 52 bars (or all bars if fewer)
+    w52 = closes.iloc[-min(n, 52):]
+    high_52w = w52.max()
+    low_52w  = w52.min()
+    low_5y   = closes.min()
+
+    # Zero-denominator guard
+    if high_52w == 0 or low_52w == 0 or low_5y == 0:
+        return {
+            "dist_52w_high":     None if high_52w == 0 else max(0.0, (high_52w - price) / high_52w * 100),
+            "dist_52w_low":      None if low_52w == 0  else max(0.0, (price - low_52w) / low_52w * 100),
+            "dist_5y_low":       None if low_5y == 0   else max(0.0, (price - low_5y) / low_5y * 100),
+            "weeks_since_52w_low": len(w52) - 1 - int(w52.values.argmin()),
+            "weeks_since_5y_low":  len(closes) - 1 - int(closes.values.argmin()),
+            "short_history":     short_history,
+        }
+
+    dist_52w_high = max(0.0, (high_52w - price) / high_52w * 100)
+    dist_52w_low  = max(0.0, (price - low_52w) / low_52w * 100)
+    dist_5y_low   = max(0.0, (price - low_5y) / low_5y * 100)
+    weeks_since_52w_low = len(w52) - 1 - int(w52.values.argmin())
+    weeks_since_5y_low  = len(closes) - 1 - int(closes.values.argmin())
+
+    return {
+        "dist_52w_high":       dist_52w_high,
+        "dist_52w_low":        dist_52w_low,
+        "dist_5y_low":         dist_5y_low,
+        "weeks_since_52w_low": weeks_since_52w_low,
+        "weeks_since_5y_low":  weeks_since_5y_low,
+        "short_history":       short_history,
+    }
+
+
+def _compute_fcf_yield(ocf, capex, market_cap) -> float | None:
+    """
+    Compute FCF yield as a whole-number percent.
+    FCF = ocf + capex (capex is negative in yfinance → addition adds the absolute value).
+    If capex is None but ocf is present, FCF = ocf (OCF proxy).
+    Negative FCF yields a negative result (NOT clamped — 06-02 routes it to worst).
+    internal — for tests only.
+    """
+    if ocf is None:
+        return None
+    fcf = ocf + capex if capex is not None else ocf
+    if not market_cap:
+        return None
+    return fcf / market_cap * 100
+
+
+def _compute_ev_ebit(ebit, total_debt, cash, market_cap) -> tuple:
+    """
+    Compute EV/EBIT and earnings yield (EBIT/EV*100).
+    total_debt and cash default to 0 when None.
+    Returns (ev_ebit, earnings_yield) — both None unless ebit > 0 and ev > 0.
+    market_cap None → (None, None).
+    internal — for tests only.
+    """
+    if market_cap is None:
+        return (None, None)
+    td   = total_debt if total_debt is not None else 0
+    cash = cash if cash is not None else 0
+    ev = market_cap + td - cash
+    if ebit is None or ebit <= 0 or ev <= 0:
+        return (None, None)
+    return (ev / ebit, ebit / ev * 100)
+
+
+def _compute_roic(ebit, total_debt, equity, cash) -> float | None:
+    """
+    Compute ROIC as a whole-number percent.
+    ROIC = EBIT*(1-0.21) / (total_debt + equity - cash) * 100.
+    cash defaults to 0 when None.
+    invested <= 0 → None (data anomaly, NOT worst per Slice A §3d).
+    Negative EBIT yields negative ROIC (NOT clamped — 06-02 routes it to worst).
+    internal — for tests only.
+    """
+    if ebit is None or total_debt is None or equity is None:
+        return None
+    c = cash if cash is not None else 0
+    invested = total_debt + equity - c
+    if invested <= 0:
+        return None
+    return ebit * (1 - 0.21) / invested * 100
+
+
+def _compute_shareholder_yield(div_yield, shares_now, shares_prev) -> tuple:
+    """
+    Compute shareholder yield and a partial flag.
+    div_yield is already a whole-number percent (e.g. 1.5 = 1.5%).
+    net_buyback_yield = (shares_prev - shares_now) / shares_prev * 100
+    Returns (shareholder_yield, partial_flag) where partial_flag is True when
+    net_buyback_yield is None (div-only fallback).
+    internal — for tests only.
+    """
+    net_buyback = None
+    if shares_now is not None and shares_prev is not None and shares_prev > 0:
+        net_buyback = (shares_prev - shares_now) / shares_prev * 100
+    partial_flag = net_buyback is None
+    total = (div_yield or 0.0) + (net_buyback if net_buyback is not None else 0.0)
+    return (total, partial_flag)
+
+
 def get_yf_price_and_history(ticker: str) -> dict:
     """
     Fetch price and historical EPS (for defensive checks) from yfinance.
