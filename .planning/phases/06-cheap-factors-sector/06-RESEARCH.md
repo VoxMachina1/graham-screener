@@ -1204,8 +1204,9 @@ Do not add `wk_52w` or `wk_5y` to `all_sub_scores` for coverage_pct purposes.
 
 ### Pitfall 4 — coverage_pct denominator growth
 
-Phase 5 `all_sub_scores` had 8 entries. Phase 6 adds 9 new leaf sub-scores (4 yield + 3
-price-position + 1 ROIC + recency excluded per Pitfall 3), raising the denominator to 17.
+Phase 5 `all_sub_scores` had 8 entries. Phase 6 adds 7 new leaf sub-scores (3 yield — FCF /
+earnings / shareholder, EV/EBIT diagnostic-only per Open Questions RESOLVED #1 — + 3
+price-position + 1 ROIC; recency excluded per Pitfall 3), raising the denominator to 15.
 A ticker with good fundamental data but no 5y history will now show lower `coverage_pct`
 than it did in Phase 5. This is correct behavior (more tracked inputs = more ways to be
 partial) but will show up as a drop in the coverage column for existing tickers. Document in

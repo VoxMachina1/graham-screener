@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Methodology Expansion & Scoring
-status: completed
+status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-20T21:59:42.039Z"
+last_updated: "2026-06-22T23:35:43.451Z"
 last_activity: 2026-06-19 -- Phase 5 Plan 03 complete; docs/app.js shared module, docs/top.html Top-N ranked-card page, dashboard OverallScore/pillar/Trap columns, 3-link buildNav() across all pages
 progress:
   total_phases: 7
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-17)
 
 Phase: 5 (Score Foundation + Public Top-N) — COMPLETE
 Plan: 3 of 3 (all plans complete)
-Status: Phase 5 complete — ready for Phase 6
+Status: Ready to execute
 Last activity: 2026-06-19 -- Phase 5 Plan 03 complete; docs/app.js shared module, docs/top.html Top-N ranked-card page, dashboard OverallScore/pillar/Trap columns, 3-link buildNav() across all pages
 
 Milestone v1.0 (Phases 1–4) complete. v2.0 adds three phases (5, 6, 7) under a research-prescribed, dependency-forced ordering:

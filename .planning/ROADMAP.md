@@ -138,9 +138,13 @@ Plans:
   3. New fundamental factors appear per ticker: FCF yield (FCF / market cap), EV/EBIT + earnings yield (EBIT/EV), ROIC as an absolute Quality input (not a Greenblatt rank-sum), and shareholder yield (dividend + net buyback) with a low-coverage flag where share-count data is sparse
   4. Each new metric is clamped/winsorized as it is added and folded into the appropriate pillar via the Phase 5 threshold engine, so the composite deepens without any single new factor able to dominate
 
-**Plans:** 2 plans (chunked: data layer + scoring fold)
-Plans:
+**Plans:** 2 plans (chunked: data layer + scoring fold)Plans:
+**Wave 1**
+
 - [ ] 06-01-PLAN.md — Data layer: Sector + 5y-weekly distance/recency signals + 4 cheap-factor fundamentals (FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) emitted as additive row-dict fields with coverage flags
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-02-PLAN.md — Scoring fold: thread the new fields into the Phase 5 4-pillar composite (Value sub-groups, ROIC→Quality, winsorize/bands, overall_score) — TBD
 
 ### Phase 7: Distress Signals, DCF, Stats & Snapshots
