@@ -787,16 +787,52 @@ def _compute_shareholder_yield(div_yield, shares_now, shares_prev) -> tuple:
 
 def get_yf_price_and_history(ticker: str) -> dict:
     """
-    Fetch price and historical EPS (for defensive checks) from yfinance.
-    Returns: { price, annual_eps, annual_dividends }
+    Fetch price, historical EPS, dividends, sector, 5y weekly history, and
+    raw statement components for the Phase 6 factor helpers — all from ONE
+    reused yf.Ticker object per ticker (D-03/D-05).
+
+    Returns: {
+        price, annual_eps, annual_dividends,
+        sector,
+        dist_52w_high, dist_52w_low, dist_5y_low,
+        weeks_since_52w_low, weeks_since_5y_low, short_history,
+        ocf, capex, ebit, total_debt, cash, equity, shares_now, shares_prev,
+    }
     """
-    result = {"price": None, "annual_eps": [], "annual_dividends": []}
+    result = {
+        "price":              None,
+        "annual_eps":         [],
+        "annual_dividends":   [],
+        # Phase 6 additions
+        "sector":             None,
+        "dist_52w_high":      None,
+        "dist_52w_low":       None,
+        "dist_5y_low":        None,
+        "weeks_since_52w_low": None,
+        "weeks_since_5y_low":  None,
+        "short_history":      False,
+        "ocf":                None,
+        "capex":              None,
+        "ebit":               None,
+        "total_debt":         None,
+        "cash":               None,
+        "equity":             None,
+        "shares_now":         None,
+        "shares_prev":        None,
+    }
     try:
         t = yf.Ticker(ticker)
 
         # ── Price ───────────────────────────────────────────────────────
         fi = t.fast_info
         result["price"] = getattr(fi, "last_price", None)
+        price = result["price"]
+
+        # ── Sector — guard .info separately; it may raise on delisted tickers ──
+        try:
+            result["sector"] = t.info.get("sector")
+        except Exception:
+            result["sector"] = None
 
         # ── Historical EPS (for 10yr defensive checks) ──────────────────
         inc = t.income_stmt
@@ -806,6 +842,8 @@ def get_yf_price_and_history(ticker: str) -> dict:
                 if label in inc.index:
                     result["annual_eps"] = [_safe_float(v) for v in inc.loc[label].values]
                     break
+            # EBIT from income statement (newest-first — NOT re-sorted here; use raw)
+            result["ebit"] = _yf_row(t.income_stmt, EBIT_LABELS)
 
         # ── Dividend history ────────────────────────────────────────────
         divs = t.dividends
@@ -813,6 +851,42 @@ def get_yf_price_and_history(ticker: str) -> dict:
             divs.index = divs.index.tz_localize(None) if divs.index.tz else divs.index
             annual_divs = divs.resample("YE").sum()
             result["annual_dividends"] = [float(v) for v in annual_divs.values[-10:]]
+
+        # ── 5-year weekly history → price distance/recency signals ──────
+        try:
+            hist = t.history(period="5y", interval="1wk")
+        except Exception:
+            hist = pd.DataFrame()
+        if hist is not None and not hist.empty and "Close" in hist.columns and price:
+            signals = _compute_price_signals(hist["Close"], price)
+            result["dist_52w_high"]      = signals["dist_52w_high"]
+            result["dist_52w_low"]       = signals["dist_52w_low"]
+            result["dist_5y_low"]        = signals["dist_5y_low"]
+            result["weeks_since_52w_low"] = signals["weeks_since_52w_low"]
+            result["weeks_since_5y_low"]  = signals["weeks_since_5y_low"]
+            result["short_history"]      = signals["short_history"]
+
+        # ── Cashflow statement — OCF and capex ──────────────────────────
+        cf = t.cashflow
+        if cf is not None and not cf.empty:
+            result["ocf"]   = _yf_row(cf, OCF_LABELS)
+            result["capex"] = _yf_row(cf, CAPEX_LABELS)
+
+        # ── Balance sheet — debt, cash, equity, shares ──────────────────
+        bs = t.balance_sheet
+        if bs is not None and not bs.empty:
+            td_long    = _yf_row(bs, TOTAL_DEBT_LABELS) or 0
+            td_current = _yf_row(bs, CURRENT_DEBT_LABELS) or 0
+            result["total_debt"] = td_long + td_current
+            result["cash"]       = _yf_row(bs, CASH_LABELS)
+            result["equity"]     = _yf_row(bs, EQUITY_LABELS)
+            # Shares outstanding: newest (col 0) and prior year (col 1)
+            for label in SHARES_LABELS:
+                if label in bs.index:
+                    shares_row = bs.loc[label]
+                    result["shares_now"]  = _safe_float(shares_row.iloc[0]) if len(shares_row) >= 1 else None
+                    result["shares_prev"] = _safe_float(shares_row.iloc[1]) if len(shares_row) >= 2 else None
+                    break
 
     except Exception as e:
         log.warning(f"yfinance error for {ticker}: {e}")
@@ -879,6 +953,40 @@ def get_combined_data(ticker: str) -> dict:
         fh.get("freeCashFlowPerShareTTM") or fh.get("freeCashFlowPerShareAnnual")
     )
 
+    # ── Phase 6: compute factor values from raw yfinance components ────
+    mkt_cap = mkt_cap_b * 1e9 if mkt_cap_b is not None else None
+
+    # FCF yield — yfinance cashflow (D-01: Finnhub FCF confirmed absent on free tier)
+    fcf_yield = _compute_fcf_yield(
+        ocf=yf_data["ocf"],
+        capex=yf_data["capex"],
+        market_cap=mkt_cap,
+    )
+
+    # EV/EBIT and earnings yield
+    ev_ebit, earnings_yield = _compute_ev_ebit(
+        ebit=yf_data["ebit"],
+        total_debt=yf_data["total_debt"],
+        cash=yf_data["cash"],
+        market_cap=mkt_cap,
+    )
+
+    # ROIC
+    roic = _compute_roic(
+        ebit=yf_data["ebit"],
+        total_debt=yf_data["total_debt"],
+        equity=yf_data["equity"],
+        cash=yf_data["cash"],
+    )
+
+    # Shareholder yield — div_yield computed as whole-number percent (matches DivYield_Pct)
+    div_yield_pct = (float(ttm_dps) / float(price) * 100.0) if (price and ttm_dps) else 0.0
+    shareholder_yield, sh_partial = _compute_shareholder_yield(
+        div_yield=div_yield_pct,
+        shares_now=yf_data["shares_now"],
+        shares_prev=yf_data["shares_prev"],
+    )
+
     return {
         "price":            price,
         "market_cap_b":     mkt_cap_b,
@@ -892,6 +1000,21 @@ def get_combined_data(ticker: str) -> dict:
         "book_value_ps":    book_value_ps,
         "pb_ratio":         pb_ratio,
         "fcf_per_share":    fcf_per_share,              # FCF sign for Plan 02 trap gate (D-04)
+        # Phase 6 additions — sector + price signals
+        "sector":                yf_data["sector"],
+        "dist_52w_high":         yf_data["dist_52w_high"],
+        "dist_52w_low":          yf_data["dist_52w_low"],
+        "dist_5y_low":           yf_data["dist_5y_low"],
+        "weeks_since_52w_low":   yf_data["weeks_since_52w_low"],
+        "weeks_since_5y_low":    yf_data["weeks_since_5y_low"],
+        "short_history":         yf_data["short_history"],
+        # Phase 6 additions — fundamental factors
+        "fcf_yield":             fcf_yield,
+        "ev_ebit":               ev_ebit,
+        "earnings_yield":        earnings_yield,
+        "roic":                  roic,
+        "shareholder_yield":     shareholder_yield,
+        "shareholder_yield_partial": sh_partial,
     }
 
 
@@ -1337,6 +1460,29 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["score_safety"]   = scores["safety"]
     row["is_trap"]        = is_trap
     row["coverage_pct"]   = scores["coverage_pct"]
+
+    # ── Phase 6 additive columns — sector + price signals + factors ──
+    # Sector (SECTOR-01, D-02)
+    row["Sector"] = fund["sector"]
+
+    # Price-distance/recency signals (SIGNAL-01/02/03, D-03)
+    def _r2(v):
+        return round(float(v), 2) if v is not None else None
+
+    row["Dist_52w_High_Pct"]    = _r2(fund["dist_52w_high"])
+    row["Dist_52w_Low_Pct"]     = _r2(fund["dist_52w_low"])
+    row["Dist_5y_Low_Pct"]      = _r2(fund["dist_5y_low"])
+    row["Weeks_Since_52w_Low"]  = _r2(fund["weeks_since_52w_low"])
+    row["Weeks_Since_5y_Low"]   = _r2(fund["weeks_since_5y_low"])
+    row["short_history"]        = fund["short_history"]
+
+    # Fundamental factors (SIGNAL-04/05/06/07, D-01)
+    row["FCF_Yield_Pct"]          = _r2(fund["fcf_yield"])
+    row["EV_EBIT"]                = _r2(fund["ev_ebit"])
+    row["Earnings_Yield_Pct"]     = _r2(fund["earnings_yield"])
+    row["ROIC_Pct"]               = _r2(fund["roic"])
+    row["Shareholder_Yield_Pct"]  = _r2(fund["shareholder_yield"])
+    row["shareholder_yield_partial"] = fund["shareholder_yield_partial"]
 
     # ── Show? — at least one Buy signal ─────────────────────────────
     buy_signals = {"Strong Buy", "Buy", "Deep Buy"}
