@@ -110,7 +110,8 @@ Plans:
   4. Missing metrics are averaged over present metrics within a pillar and a per-row coverage flag is emitted; a missing Safety input is treated as "unknown," never "safe"; correlated Value metrics are grouped so the Value pillar is not a single cheapness rank
   5. `docs/top.html` shows the Top 10/25 (toggle) ranked by `OverallScore` with pillar sub-scores and headline signals, every row carries a value-trap badge driven by an interim gate (debt/equity, current ratio, EPS stability, negative FCF), and the shared `docs/app.js` powers fetch/format/color/freshness across Dashboard, Top Picks, and Methodology nav links
 
-**Plans:** 3 plans (Wave 1 -> 2 -> 3)Plans:
+**Plans:** 3 plans (Wave 1 -> 2 -> 3)
+Plans:
 **Wave 1**
 
 - [x] 05-01-PLAN.md - Buy Price audit + KO fixture + negative-input routing + FCF passthrough (FIX-01/02) — Complete 2026-06-19
@@ -137,7 +138,10 @@ Plans:
   3. New fundamental factors appear per ticker: FCF yield (FCF / market cap), EV/EBIT + earnings yield (EBIT/EV), ROIC as an absolute Quality input (not a Greenblatt rank-sum), and shareholder yield (dividend + net buyback) with a low-coverage flag where share-count data is sparse
   4. Each new metric is clamped/winsorized as it is added and folded into the appropriate pillar via the Phase 5 threshold engine, so the composite deepens without any single new factor able to dominate
 
-**Plans:** TBD
+**Plans:** 2 plans (chunked: data layer + scoring fold)
+Plans:
+- [ ] 06-01-PLAN.md — Data layer: Sector + 5y-weekly distance/recency signals + 4 cheap-factor fundamentals (FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) emitted as additive row-dict fields with coverage flags
+- [ ] 06-02-PLAN.md — Scoring fold: thread the new fields into the Phase 5 4-pillar composite (Value sub-groups, ROIC→Quality, winsorize/bands, overall_score) — TBD
 
 ### Phase 7: Distress Signals, DCF, Stats & Snapshots
 
