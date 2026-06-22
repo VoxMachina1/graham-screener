@@ -57,6 +57,15 @@ for ticker in TICKERS:
             "epsAnnual",
             "epsGrowth5Y",
             "dividendPerShareAnnual",
+            # Phase 6 [VERIFY] — confirm free-tier presence
+            "evToEbit",
+            "ebitAnnual",
+            "enterpriseValue",
+            "roiAnnual",
+            "dividendYieldAnnual",
+            "sharesBuybackRatioAnnual",
+            "totalDebtAnnual",
+            "cashAnnual",
         ]
         print("  Fields of interest:")
         for f in fields_of_interest:
