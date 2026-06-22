@@ -1220,15 +1220,18 @@ after the change.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **EV/EBIT vs. earnings yield redundancy.** EV/EBIT and earnings yield (EBIT/EV) are
-   mathematical inverses. Including both in sub-group 2 is redundant if sourced from the
-   same Finnhub field — Slice A research should confirm whether both fields are distinct
-   (e.g., one is Finnhub's `enterpriseValueEbitRatioTTM`, the other computed from EPS/Price).
-   If both come from the same underlying number, drop one and note in config comments.
+1. **EV/EBIT vs. earnings yield redundancy. — RESOLVED.** They are exact reciprocals
+   (EV/EBIT = 1 / (EBIT/EV)), computed from the same EV + EBIT figures, so scoring both
+   would double-weight one signal inside the yield sub-group. **Decision: score
+   `earnings_yield` only; keep `EV_EBIT` as a diagnostic-only emitted column (not fed into
+   the score).** No `_score_ev_ebit`, no `evebit_sub`, no `SCORE_EV_EBIT_*` constant. SIGNAL-05
+   is still satisfied — both EV/EBIT and earnings yield appear as row fields and earnings_yield
+   is the folded scoring input. (Implemented in 06-02-PLAN.md; confirmed by plan-checker.)
 
-2. **Shareholder yield coverage.** If Slice A finds sparse coverage (< 50% of tickers),
-   consider whether a near-always-None input dilutes the yield sub-group more than it helps.
-   The `_avg_present` contract handles missing gracefully, but a perpetually-absent field
-   adds noise to coverage_pct without adding signal.
+2. **Shareholder yield coverage. — RESOLVED.** Keep shareholder yield in the yield
+   sub-group. The `_avg_present` contract is average-over-*present*, not average-over-all, so a
+   frequently-`None` input simply does not contribute to that sub-group's average — it does not
+   dilute it. The `shareholder_yield_partial` flag surfaces low coverage for monitoring. No
+   change needed; revisit thresholds in Phase 7 if `stats.html` shows it adds noise.
