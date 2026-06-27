@@ -180,6 +180,96 @@ TRAP_MIN_CR   = 1.0   # current ratio below this trips the gate
 # EPS_Stability == 0  → trips gate (no positive EPS in recent history)
 # fcf_per_share < 0   → trips gate (negative free cash flow)
 
+# ── Value sub-group 2: cash/earnings-yield cheapness ─────────────────────
+# Higher yield = better for all three; ascending bands.
+# Negative inputs are routed to worst sub-score before reaching winsorize.
+
+# FCF yield (FCF / market_cap, expressed as %)
+SCORE_FCF_YIELD_WIN_LO  =  0.0   # floor: negatives handled via D-01 before winsorize
+SCORE_FCF_YIELD_WIN_HI  = 15.0   # cap extreme FCF yields
+SCORE_FCF_YIELD_BANDS   = [      # [ASSUMED] — monitor in Phase 7
+    ( 0.0,  2.0,   0,  20),      # thin FCF yield
+    ( 2.0,  5.0,  20,  60),      # moderate
+    ( 5.0,  8.0,  60,  85),      # solid
+    ( 8.0, 15.0,  85, 100),      # high FCF yield
+]
+
+# Earnings yield (EBIT / EV, expressed as %)
+# Negative earnings yield → D-01 worst-score.
+SCORE_EARN_YIELD_WIN_LO =  0.0
+SCORE_EARN_YIELD_WIN_HI = 20.0
+SCORE_EARN_YIELD_BANDS  = [      # [ASSUMED] — monitor in Phase 7
+    ( 0.0,  3.0,   0,  20),
+    ( 3.0,  6.0,  20,  50),
+    ( 6.0, 10.0,  50,  80),
+    (10.0, 20.0,  80, 100),
+]
+
+# Shareholder yield (div yield + buyback yield, expressed as %)
+# Zero/negative → D-01 worst-score.
+SCORE_SH_YIELD_WIN_LO   =  0.0
+SCORE_SH_YIELD_WIN_HI   = 12.0
+SCORE_SH_YIELD_BANDS    = [      # [ASSUMED] — monitor in Phase 7
+    (0.0,  2.0,   0,  30),
+    (2.0,  4.0,  30,  60),
+    (4.0,  6.0,  60,  85),
+    (6.0, 12.0,  85, 100),
+]
+
+# ── Value sub-group 3: price-position (D-04) ─────────────────────────────
+
+# dist_52w_low: % the current price is above the 52-week low.
+# 0% = AT the low (maximum contrarian signal = 100 score). Higher % = bounced; score falls.
+# descending: nearer-low scores higher — score_lo > score_hi encodes inversion (no _piecewise_score invert path)
+SCORE_DIST_52W_LOW_WIN_LO =   0.0
+SCORE_DIST_52W_LOW_WIN_HI = 200.0
+SCORE_DIST_52W_LOW_BANDS  = [      # [ASSUMED] — descending: near low = 100; monitor in Phase 7
+    (  0.0,  10.0, 100,  85),      # within 10% of 52w low — very contrarian
+    ( 10.0,  30.0,  85,  55),
+    ( 30.0,  60.0,  55,  25),
+    ( 60.0, 200.0,  25,   0),
+]
+
+# dist_52w_high: % the current price is below the 52-week high.
+# Higher = more below high = deeper price discount = better. Ascending.
+SCORE_DIST_52W_HIGH_WIN_LO =   0.0
+SCORE_DIST_52W_HIGH_WIN_HI = 100.0
+SCORE_DIST_52W_HIGH_BANDS  = [     # [ASSUMED] — ascending: far from high = 100; monitor in Phase 7
+    ( 0.0,  5.0,   0,  10),        # within 5% of high — near peak
+    ( 5.0, 20.0,  10,  50),
+    (20.0, 40.0,  50,  80),
+    (40.0,100.0,  80, 100),
+]
+
+# dist_5y_low: % the current price is above the 5-year low.
+# Same directional logic as dist_52w_low; wider range.
+# descending: nearer-low scores higher — score_lo > score_hi encodes inversion (no _piecewise_score invert path)
+SCORE_DIST_5Y_LOW_WIN_LO =    0.0
+SCORE_DIST_5Y_LOW_WIN_HI =  400.0
+SCORE_DIST_5Y_LOW_BANDS  = [       # [ASSUMED] — descending: near 5y low = 100; monitor in Phase 7
+    (  0.0,  20.0, 100,  85),
+    ( 20.0,  60.0,  85,  55),
+    ( 60.0, 120.0,  55,  25),
+    (120.0, 400.0,  25,   0),
+]
+
+# Recency multiplier constants for dist_52w_low and dist_5y_low sub-scores.
+# weeks=0: multiplier = SCORE_RECENCY_FLOOR (very fresh low; may still be falling)
+# weeks>=SCORE_RECENCY_FULL_WK: multiplier = 1.0 (basing; full contrarian credit)
+SCORE_RECENCY_FLOOR   = 0.70   # [ASSUMED]
+SCORE_RECENCY_FULL_WK = 26     # weeks at which full credit is granted [ASSUMED]
+
+# ── Quality pillar: ROIC ─────────────────────────────────────────────────
+# Negative ROIC → D-01 worst-score (capital-destroying).
+SCORE_ROIC_WIN_LO =   0.0
+SCORE_ROIC_WIN_HI =  50.0   # cap extreme ROIC (asset-light outliers)
+SCORE_ROIC_BANDS  = [        # [ASSUMED] — monitor in Phase 7
+    ( 0.0,  5.0,   0,  20),  # low/poor capital returns
+    ( 5.0, 10.0,  20,  50),
+    (10.0, 20.0,  50,  85),
+    (20.0, 50.0,  85, 100),
+]
+
 # ── Pillar weights ────────────────────────────────────────────────────────
 # ~35/30/20/15 (Value/Quality/Growth/Safety) per D-02.
 # Weights are renormalized over present pillars at runtime (avg-over-present).
@@ -239,6 +329,14 @@ def _avg_present(values: list) -> float | None:
     """
     present = [v for v in values if v is not None]
     return round(sum(present) / len(present), 2) if present else None
+
+
+def _recency_multiplier(weeks_since_low: float | None) -> float:
+    """internal — for tests only. Linear ramp SCORE_RECENCY_FLOOR->1.0 over SCORE_RECENCY_FULL_WK weeks."""
+    if weeks_since_low is None:
+        return 1.0
+    t = min(1.0, weeks_since_low / SCORE_RECENCY_FULL_WK)
+    return SCORE_RECENCY_FLOOR + t * (1.0 - SCORE_RECENCY_FLOOR)
 
 
 def trap_gate(
