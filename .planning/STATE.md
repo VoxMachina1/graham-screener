@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Methodology Expansion & Scoring
 status: executing
-stopped_at: Phase 6 Plan 01 complete — executing Plan 02
-last_updated: "2026-06-26T00:00:00.000Z"
-last_activity: 2026-06-22 -- Phase 6 Plan 01 execution complete
+stopped_at: Phase 6 Plans 01+02 complete — verifying
+last_updated: "2026-06-28T12:00:00.000Z"
+last_activity: 2026-06-28 -- Phase 6 Plan 02 (scoring layer) complete; 89 tests pass
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 11
-  completed_plans: 10
-  percent: 76
+  completed_plans: 11
+  percent: 86
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-17)
 
 ## Current Position
 
-Phase: 6 (Cheap Factors + Sector) — EXECUTING
+Phase: 6 (Cheap Factors + Sector) — COMPLETE (verifying)
 Plan: 2 of 2
-Status: Executing Phase 6 Plan 02 (scoring layer)
-Last activity: 2026-06-22 -- Phase 6 Plan 01 complete; Plan 02 pending
+Status: Phase 6 code complete; running verification
+Last activity: 2026-06-28 -- Phase 6 Plan 02 complete; 89 offline tests pass
 
 Milestone v1.0 (Phases 1–4) complete. v2.0 adds three phases (5, 6, 7) under a research-prescribed, dependency-forced ordering:
 
