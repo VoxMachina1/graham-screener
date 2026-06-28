@@ -389,6 +389,15 @@ def overall_score(
     is_trap: bool,
     coverage_fraction: float,
     aaa_yield: float,
+    fcf_yield: float | None = None,
+    earnings_yield: float | None = None,
+    shareholder_yield: float | None = None,
+    roic: float | None = None,
+    dist_52w_low: float | None = None,
+    dist_52w_high: float | None = None,
+    dist_5y_low: float | None = None,
+    weeks_since_52w_low: float | None = None,
+    weeks_since_5y_low: float | None = None,
 ) -> dict:
     """
     Compute the 4-pillar absolute OverallScore (0–100) and return a breakdown dict.
@@ -404,10 +413,11 @@ def overall_score(
         }
 
     Pillar design (per 05-CONTEXT.md D-02):
-      VALUE   = discount sub-group (Lynch + Graham averaged) — SCORE-07 two-level
-                structure established even with one group, so Phase 6 adds a second
-                sub-group (FCF yield / EV-EBIT) trivially.
-      QUALITY = DefensiveScore + debt/equity + current_ratio
+      VALUE   = 3 equal sub-groups averaged:
+                  1. discount  (Lynch + Graham)
+                  2. yield     (FCF yield + earnings yield + shareholder yield)
+                  3. price-pos (dist_52w_low * recency + dist_52w_high + dist_5y_low * recency)
+      QUALITY = DefensiveScore + debt/equity + current_ratio + ROIC
       GROWTH  = growth level (g) + growth_stability
       SAFETY  = trap gate result (D-03)
 
@@ -448,11 +458,43 @@ def overall_score(
 
     lynch_sub   = _score_discount(lynch_discount)
     graham_sub  = _score_discount(graham_discount)
-    # Two-level grouping per SCORE-07: average the two correlated discount signals
-    # into one "discount" sub-group so Value is not double-counted cheapness.
-    # Phase 6 will add a second sub-group (FCF yield etc.) at this level.
+    # Sub-group 1: discount (Lynch + Graham averaged — SCORE-07 two-level structure)
     discount_group = _avg_present([lynch_sub, graham_sub])
-    score_value    = _avg_present([discount_group])  # single sub-group in Phase 5
+
+    # Sub-group 2: yield (ascending; negative/zero → 0.0 before winsorize)
+    def _score_yield(v, win_lo, win_hi, bands):
+        if v is None:
+            return None
+        if v <= 0:
+            return 0.0
+        return _piecewise_score(_winsorize(v, win_lo, win_hi), bands)
+
+    fcf_sub   = _score_yield(fcf_yield,         SCORE_FCF_YIELD_WIN_LO,  SCORE_FCF_YIELD_WIN_HI,  SCORE_FCF_YIELD_BANDS)
+    earny_sub = _score_yield(earnings_yield,    SCORE_EARN_YIELD_WIN_LO, SCORE_EARN_YIELD_WIN_HI, SCORE_EARN_YIELD_BANDS)
+    shy_sub   = _score_yield(shareholder_yield, SCORE_SH_YIELD_WIN_LO,   SCORE_SH_YIELD_WIN_HI,   SCORE_SH_YIELD_BANDS)
+    yield_group = _avg_present([fcf_sub, earny_sub, shy_sub])
+
+    # Sub-group 3: price-position (descending bands; low ones get recency multiplier)
+    if dist_52w_low is None:
+        s_52w_lo = None
+    else:
+        raw = _piecewise_score(_winsorize(dist_52w_low, SCORE_DIST_52W_LOW_WIN_LO, SCORE_DIST_52W_LOW_WIN_HI), SCORE_DIST_52W_LOW_BANDS)
+        s_52w_lo = raw * _recency_multiplier(weeks_since_52w_low)
+
+    if dist_52w_high is None:
+        s_52w_hi = None
+    else:
+        s_52w_hi = _piecewise_score(_winsorize(dist_52w_high, SCORE_DIST_52W_HIGH_WIN_LO, SCORE_DIST_52W_HIGH_WIN_HI), SCORE_DIST_52W_HIGH_BANDS)
+
+    if dist_5y_low is None:
+        s_5y_lo = None
+    else:
+        raw = _piecewise_score(_winsorize(dist_5y_low, SCORE_DIST_5Y_LOW_WIN_LO, SCORE_DIST_5Y_LOW_WIN_HI), SCORE_DIST_5Y_LOW_BANDS)
+        s_5y_lo = raw * _recency_multiplier(weeks_since_5y_low)
+
+    price_group = _avg_present([s_52w_lo, s_52w_hi, s_5y_lo])
+
+    score_value = _avg_present([discount_group, yield_group, price_group])
 
     # ── QUALITY PILLAR ────────────────────────────────────────────────────────
     def _score_defensive(ds: float | None) -> float | None:
@@ -476,7 +518,15 @@ def overall_score(
     def_sub   = _score_defensive(defensive_score)
     de_sub    = _score_debt_equity(debt_equity)
     cr_sub    = _score_current_ratio(current_ratio)
-    score_quality = _avg_present([def_sub, de_sub, cr_sub])
+
+    if roic is None:
+        roic_sub = None
+    elif roic <= 0:
+        roic_sub = 0.0
+    else:
+        roic_sub = _piecewise_score(_winsorize(roic, SCORE_ROIC_WIN_LO, SCORE_ROIC_WIN_HI), SCORE_ROIC_BANDS)
+
+    score_quality = _avg_present([def_sub, de_sub, cr_sub, roic_sub])
 
     # ── GROWTH PILLAR ─────────────────────────────────────────────────────────
     def _score_growth_g(gg: float | None) -> float | None:
@@ -522,9 +572,15 @@ def overall_score(
     present_count = 0
     total_sub_scores = 0
 
-    # Count all expected sub-scores for coverage_pct numerator/denominator
-    all_sub_scores = [lynch_sub, graham_sub, def_sub, de_sub, cr_sub,
-                      growth_g_sub, growth_stab_sub, score_safety]
+    # Count all expected sub-scores for coverage_pct numerator/denominator (15 leaves)
+    all_sub_scores = [
+        lynch_sub, graham_sub,                          # Value: discount
+        fcf_sub, earny_sub, shy_sub,                    # Value: yield
+        s_52w_lo, s_52w_hi, s_5y_lo,                   # Value: price-position
+        def_sub, de_sub, cr_sub, roic_sub,              # Quality
+        growth_g_sub, growth_stab_sub,                  # Growth
+        score_safety,                                   # Safety
+    ]
     present_sub_count = sum(1 for s in all_sub_scores if s is not None)
     total_sub_count   = len(all_sub_scores)
 
@@ -543,12 +599,15 @@ def overall_score(
     coverage_pct = round(present_sub_count / total_sub_count * 100, 1) if total_sub_count > 0 else 0.0
 
     return {
-        "overall":      overall,
-        "value":        round(score_value,   2) if score_value   is not None else None,
-        "quality":      round(score_quality, 2) if score_quality is not None else None,
-        "growth":       round(score_growth,  2) if score_growth  is not None else None,
-        "safety":       score_safety,
-        "coverage_pct": coverage_pct,
+        "overall":        overall,
+        "value":          round(score_value,   2) if score_value   is not None else None,
+        "quality":        round(score_quality, 2) if score_quality is not None else None,
+        "growth":         round(score_growth,  2) if score_growth  is not None else None,
+        "safety":         score_safety,
+        "coverage_pct":   coverage_pct,
+        "value_discount": round(discount_group, 2) if discount_group is not None else None,
+        "value_yield":    round(yield_group,    2) if yield_group    is not None else None,
+        "value_price":    round(price_group,    2) if price_group    is not None else None,
     }
 
 
@@ -1538,26 +1597,38 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     # to WORST_DISCOUNT for negative-input tickers via the D-01 intercepts
     # above, so negative-input rows reach here and receive Value=0).
     scores = overall_score(
-        lynch_discount   = lm.get("Lynch_Discount_Pct"),
-        graham_discount  = gm.get("Graham_Discount_Pct"),
-        defensive_score  = ds.get("DefensiveScore"),
-        debt_equity      = fund["debt_equity"],
-        current_ratio    = fund["current_ratio"],
-        growth_g         = g,
-        growth_stability = growth_stability,
-        is_trap          = is_trap,
-        coverage_fraction= cov_fraction,
-        aaa_yield        = aaa_yield,
+        lynch_discount      = lm.get("Lynch_Discount_Pct"),
+        graham_discount     = gm.get("Graham_Discount_Pct"),
+        defensive_score     = ds.get("DefensiveScore"),
+        debt_equity         = fund["debt_equity"],
+        current_ratio       = fund["current_ratio"],
+        growth_g            = g,
+        growth_stability    = growth_stability,
+        is_trap             = is_trap,
+        coverage_fraction   = cov_fraction,
+        aaa_yield           = aaa_yield,
+        fcf_yield           = fund.get("FCF_Yield_Pct"),
+        earnings_yield      = fund.get("Earnings_Yield_Pct"),
+        shareholder_yield   = fund.get("Shareholder_Yield_Pct"),
+        roic                = fund.get("ROIC_Pct"),
+        dist_52w_low        = fund.get("Dist_52w_Low_Pct"),
+        dist_52w_high       = fund.get("Dist_52w_High_Pct"),
+        dist_5y_low         = fund.get("Dist_5y_Low_Pct"),
+        weeks_since_52w_low = fund.get("Weeks_Since_52w_Low"),
+        weeks_since_5y_low  = fund.get("Weeks_Since_5y_Low"),
     )
 
     # Merge flat score columns (additive — existing keys untouched, D-02c)
-    row["OverallScore"]   = scores["overall"]
-    row["score_value"]    = scores["value"]
-    row["score_quality"]  = scores["quality"]
-    row["score_growth"]   = scores["growth"]
-    row["score_safety"]   = scores["safety"]
-    row["is_trap"]        = is_trap
-    row["coverage_pct"]   = scores["coverage_pct"]
+    row["OverallScore"]          = scores["overall"]
+    row["score_value"]           = scores["value"]
+    row["score_value_discount"]  = scores["value_discount"]
+    row["score_value_yield"]     = scores["value_yield"]
+    row["score_value_price"]     = scores["value_price"]
+    row["score_quality"]         = scores["quality"]
+    row["score_growth"]          = scores["growth"]
+    row["score_safety"]          = scores["safety"]
+    row["is_trap"]               = is_trap
+    row["coverage_pct"]          = scores["coverage_pct"]
 
     # ── Phase 6 additive columns — sector + price signals + factors ──
     # Sector (SECTOR-01, D-02)
@@ -1630,13 +1701,16 @@ def write_json(df: pd.DataFrame) -> None:
     # pandas dict-column edge cases (Pitfall 3 preferred approach).
     for row in rows:
         row["scores"] = {
-            "overall":      row.get("OverallScore"),
-            "value":        row.get("score_value"),
-            "quality":      row.get("score_quality"),
-            "growth":       row.get("score_growth"),
-            "safety":       row.get("score_safety"),
-            "coverage_pct": row.get("coverage_pct"),
-            "trap":         row.get("is_trap", False),
+            "overall":        row.get("OverallScore"),
+            "value":          row.get("score_value"),
+            "value_discount": row.get("score_value_discount"),
+            "value_yield":    row.get("score_value_yield"),
+            "value_price":    row.get("score_value_price"),
+            "quality":        row.get("score_quality"),
+            "growth":         row.get("score_growth"),
+            "safety":         row.get("score_safety"),
+            "coverage_pct":   row.get("coverage_pct"),
+            "trap":           row.get("is_trap", False),
         }
     payload = {
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
