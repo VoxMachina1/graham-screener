@@ -90,14 +90,14 @@
 - [ ] **SIGNAL-05**: EV/EBIT (Acquirer's Multiple) and earnings yield (EBIT/EV)
 - [ ] **SIGNAL-06**: ROIC as an absolute Quality input (not the Greenblatt rank-sum)
 - [ ] **SIGNAL-07**: Shareholder yield (dividend + net buyback), with a low-coverage flag where share-count data is sparse
-- [ ] **SIGNAL-08**: Piotroski F-Score (0–9) from two years of financial statements
-- [ ] **SIGNAL-09**: Altman Z-Score (Z'' variant) with distress zones, used as a penalty/veto
+- [x] **SIGNAL-08**: Piotroski F-Score (0–9) from two years of financial statements
+- [x] **SIGNAL-09**: Altman Z-Score (Z'' variant) with distress zones, used as a penalty/veto
 
 ### Discounted Cash Flow
 
-- [ ] **DCF-01**: Forward two-stage DCF intrinsic value and discount % per ticker
-- [ ] **DCF-02**: Reverse DCF implied-growth vs actual-growth gap
-- [ ] **DCF-03**: DCF is sector-guarded (financials excluded, cyclicals flagged), asserts terminal-growth < discount-rate, and the reverse solver is bounded and emits `None` on non-convergence (never a silent default)
+- [x] **DCF-01**: Forward two-stage DCF intrinsic value and discount % per ticker
+- [x] **DCF-02**: Reverse DCF implied-growth vs actual-growth gap
+- [x] **DCF-03**: DCF is sector-guarded (financials excluded, cyclicals flagged), asserts terminal-growth < discount-rate, and the reverse solver is bounded and emits `None` on non-convergence (never a silent default)
 
 ### Sector Awareness
 
@@ -209,12 +209,12 @@
 | SIGNAL-05 | Phase 6 | Pending | EV/EBIT (Acquirer's Multiple) + earnings yield (EBIT/EV) |
 | SIGNAL-06 | Phase 6 | Pending | ROIC as absolute Quality input (not Greenblatt rank-sum) |
 | SIGNAL-07 | Phase 6 | Pending | Shareholder yield (dividend + net buyback) + low-coverage flag |
-| SIGNAL-08 | Phase 7 | Pending | Piotroski F-Score (0–9) from 2yr statements |
-| SIGNAL-09 | Phase 7 | Pending | Altman Z-Score (Z'' variant) distress zones — penalty/veto |
+| SIGNAL-08 | Phase 7 | Complete | Piotroski F-Score (0–9) from 2yr statements |
+| SIGNAL-09 | Phase 7 | Complete | Altman Z-Score (Z'' variant) distress zones — penalty/veto |
 | TRAP-03 | Phase 7 | Pending | Altman Z + Piotroski upgrade interim gate as Safety driver |
-| DCF-01 | Phase 7 | Pending | Forward two-stage DCF intrinsic value + discount % |
-| DCF-02 | Phase 7 | Pending | Reverse DCF implied-vs-actual-growth gap |
-| DCF-03 | Phase 7 | Pending | DCF sector-guarded, terminal-g < discount-rate assert, bounded solver → None |
+| DCF-01 | Phase 7 | Complete | Forward two-stage DCF intrinsic value + discount % |
+| DCF-02 | Phase 7 | Complete | Reverse DCF implied-vs-actual-growth gap |
+| DCF-03 | Phase 7 | Complete | DCF sector-guarded, terminal-g < discount-rate assert, bounded solver → None |
 | SECTOR-02 | Phase 7 | Pending | Per-metric sector applicability matrix; invalid = missing, never zero |
 | PAGE-02 | Phase 7 | Pending | docs/stats.html universe overview |
 | DATA-01 | Phase 7 | Pending | Periodic snapshots under docs/data/snapshots/ + .gitignore exception |

@@ -162,11 +162,11 @@ Plans:
 
 **Note on DATA-03:** The optional 30-day fundamentals cache is **deferred out of Phase 7** per user decision (CONTEXT.md Deferred Ideas) — it adds engineering complexity and is best added once Phase 7 runtime is benchmarked. All other Phase 7 requirements are planned below.
 
-**Plans:** 3 plans (Wave 1 -> 2 -> 3)
+**Plans:** 1/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 07-01-PLAN.md — Data layer: _compute_piotroski / _compute_altman_z / _compute_dcf_forward / _compute_dcf_reverse pure helpers + two-year statement threading + label lists + scipy dependency + offline tests (SIGNAL-08/09, DCF-01/02/03)
+- [x] 07-01-PLAN.md — Data layer: _compute_piotroski / _compute_altman_z / _compute_dcf_forward / _compute_dcf_reverse pure helpers + two-year statement threading + label lists + scipy dependency + offline tests (SIGNAL-08/09, DCF-01/02/03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -191,4 +191,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
 | 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
 | 6. Cheap Factors + Sector | 2/2 | Complete | 2026-06-28 |
-| 7. Distress Signals, DCF, Stats & Snapshots | 0/3 | Planned | - |
+| 7. Distress Signals, DCF, Stats & Snapshots | 1/3 | In Progress|  |
