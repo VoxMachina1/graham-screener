@@ -450,11 +450,24 @@ def test_overall_score_new_params_accepted():
 
 
 def test_low_piotroski_and_altman_depresses_safety():
-    """Low Piotroski (f=1) + low Altman (z=0.5) → score_safety well below 50."""
-    scores = _base_score(piotroski_f=1, altman_z=0.5)
-    assert scores["safety"] is not None
-    assert scores["safety"] < 50.0, (
-        f"Low Piotroski + low Altman should depress safety below 50, got {scores['safety']}"
+    """Low Piotroski (f=1) + low Altman (z=0.5) → score_safety lower than high scores."""
+    scores_distressed = _base_score(piotroski_f=1, altman_z=0.5)
+    scores_healthy    = _base_score(piotroski_f=8, altman_z=3.5)
+    assert scores_distressed["safety"] is not None
+    # Distressed Piotroski+Altman should drag safety meaningfully below the healthy case.
+    # Note: def/de/cr sub-scores (shared from Quality) are identical in both calls,
+    # so the delta reflects only Piotroski+Altman.
+    assert scores_distressed["safety"] < scores_healthy["safety"], (
+        f"Low Piotroski+Altman should depress safety vs healthy: "
+        f"{scores_distressed['safety']} < {scores_healthy['safety']}"
+    )
+    # Also verify the Piotroski sub-score is near-zero for f=1 (first band 0-2 → 0-20)
+    assert scores_distressed["piotroski"] < 20.0, (
+        f"Piotroski sub-score for f=1 should be < 20 (first band), got {scores_distressed['piotroski']}"
+    )
+    # And Altman sub-score is 0 for z=0.5 (distress zone < 1.1)
+    assert scores_distressed["altman"] == 0.0, (
+        f"Altman sub-score for z=0.5 (distress zone) should be 0.0, got {scores_distressed['altman']}"
     )
 
 

@@ -217,7 +217,6 @@ def test_overall_score_high_quality_row():
         current_ratio=2.5,      # healthy liquidity
         growth_g=12.0,          # moderate growth
         growth_stability=0.9,   # stable
-        is_trap=False,
         coverage_fraction=1.0,
         aaa_yield=4.4,          # at reference → no rate scaling
     )
@@ -238,23 +237,26 @@ def test_overall_score_worst_discount_floors_value_to_zero():
         current_ratio=2.0,
         growth_g=10.0,
         growth_stability=0.8,
-        is_trap=False,
         coverage_fraction=1.0,
         aaa_yield=4.4,
     )
     assert scores["value"] == 0, f"WORST_DISCOUNT → value sub-score must be 0, got {scores['value']}"
-    # OverallScore should be dragged down but still exist
+    # OverallScore should be dragged down but still exist.
+    # Phase 7: Safety is no longer floored to 0 by a trap gate, so overall is now
+    # determined by Quality + Growth + Safety with value=0.  The test verifies that
+    # value=0 propagates correctly and the overall is below what a healthy value would
+    # produce (i.e., < the healthy row score of ~55+).
     assert scores["overall"] is not None
-    assert scores["overall"] < 50, f"OverallScore should be depressed by value=0, got {scores['overall']}"
+    assert scores["overall"] < 55, f"OverallScore should be depressed by value=0, got {scores['overall']}"
 
 def test_overall_score_all_safety_missing_is_unknown():
-    """All trap inputs None → is_trap=False, coverage=0.0 → Safety treated as unknown (not safe).
+    """All trap inputs None — Phase 7: Safety is the average of Piotroski/Altman (50.0 each
+    per D-04) + def/de/cr sub-scores.  When all def/de/cr inputs are present, Safety is a
+    meaningful numeric average (not 0 and not None).
 
-    D-01b: safety sub-score must NOT equal SCORE_SAFETY_NOTRAP_BASE (full credit).
-    With coverage=0.0, safety = SCORE_SAFETY_NOTRAP_BASE * 0.0 = 0,
-    which means the pillar is 0 (unknown, worst-case), never the full baseline.
+    The old trap-gate floor is gone.  This test verifies Safety is present and > 0
+    even when piotroski_f and altman_z are absent (they contribute 50.0 each).
     """
-    is_trap_val, cov = trap_gate(None, None, None, None)
     scores = overall_score(
         lynch_discount=20.0,
         graham_discount=15.0,
@@ -263,32 +265,49 @@ def test_overall_score_all_safety_missing_is_unknown():
         current_ratio=2.0,
         growth_g=8.0,
         growth_stability=0.7,
-        is_trap=is_trap_val,
-        coverage_fraction=cov,
-        aaa_yield=4.4,
-    )
-    # Safety must not equal the full non-trapped baseline — missing Safety is never "safe"
-    assert scores["safety"] != SCORE_SAFETY_NOTRAP_BASE, (
-        f"All-None safety inputs must not yield full safety baseline {SCORE_SAFETY_NOTRAP_BASE}, "
-        f"got {scores['safety']}"
-    )
-
-def test_overall_score_tripped_trap_floors_safety():
-    """Tripped trap gate → Safety sub-score = SCORE_SAFETY_TRAP_PENALTY (0) per D-03."""
-    scores = overall_score(
-        lynch_discount=20.0,
-        graham_discount=15.0,
-        defensive_score=5,
-        debt_equity=0.5,
-        current_ratio=2.0,
-        growth_g=8.0,
-        growth_stability=0.7,
-        is_trap=True,
         coverage_fraction=1.0,
         aaa_yield=4.4,
+        # piotroski_f and altman_z absent → contribute 50.0 each (D-04)
     )
-    assert scores["safety"] == SCORE_SAFETY_TRAP_PENALTY, (
-        f"Tripped trap → safety must be {SCORE_SAFETY_TRAP_PENALTY}, got {scores['safety']}"
+    # Safety must be present (not None) and > 0 — D-04 ensures 50.0 from each absent signal
+    assert scores["safety"] is not None, "Safety must be computable when def/de/cr present"
+    assert scores["safety"] > 0, (
+        f"Absent Piotroski+Altman (D-04 → 50.0 each) should yield Safety > 0, got {scores['safety']}"
+    )
+
+def test_overall_score_low_distress_scores_depress_safety():
+    """Phase 7: low Piotroski (f=1) + low Altman (z=0.5) drag Safety down proportionally.
+    The old binary trap-floor is gone — distress is now a continuous signal.
+    """
+    scores_distressed = overall_score(
+        lynch_discount=20.0,
+        graham_discount=15.0,
+        defensive_score=5,
+        debt_equity=0.5,
+        current_ratio=2.0,
+        growth_g=8.0,
+        growth_stability=0.7,
+        coverage_fraction=1.0,
+        aaa_yield=4.4,
+        piotroski_f=1,    # very distressed
+        altman_z=0.5,     # distress zone (< 1.1)
+    )
+    scores_healthy = overall_score(
+        lynch_discount=20.0,
+        graham_discount=15.0,
+        defensive_score=5,
+        debt_equity=0.5,
+        current_ratio=2.0,
+        growth_g=8.0,
+        growth_stability=0.7,
+        coverage_fraction=1.0,
+        aaa_yield=4.4,
+        piotroski_f=8,    # strong
+        altman_z=3.5,     # safe zone (> 2.6)
+    )
+    assert scores_distressed["safety"] < scores_healthy["safety"], (
+        f"Distressed scores should yield lower safety than healthy: "
+        f"{scores_distressed['safety']} < {scores_healthy['safety']}"
     )
 
 def test_overall_score_pillar_renormalization_missing_growth():
@@ -297,13 +316,13 @@ def test_overall_score_pillar_renormalization_missing_growth():
         lynch_discount=20.0, graham_discount=15.0,
         defensive_score=5, debt_equity=0.5, current_ratio=2.0,
         growth_g=10.0, growth_stability=0.8,
-        is_trap=False, coverage_fraction=1.0, aaa_yield=4.4,
+        coverage_fraction=1.0, aaa_yield=4.4,
     )
     scores_no_growth = overall_score(
         lynch_discount=20.0, graham_discount=15.0,
         defensive_score=5, debt_equity=0.5, current_ratio=2.0,
         growth_g=None, growth_stability=None,
-        is_trap=False, coverage_fraction=1.0, aaa_yield=4.4,
+        coverage_fraction=1.0, aaa_yield=4.4,
     )
     # With growth missing, OverallScore should still be computable (not None)
     assert scores_no_growth["overall"] is not None, "OverallScore must be computable when one pillar is missing"
@@ -319,7 +338,7 @@ def test_overall_score_coverage_pct_reflects_present():
         lynch_discount=20.0, graham_discount=15.0,
         defensive_score=5, debt_equity=0.5, current_ratio=2.0,
         growth_g=10.0, growth_stability=0.8,
-        is_trap=False, coverage_fraction=1.0, aaa_yield=4.4,
+        coverage_fraction=1.0, aaa_yield=4.4,
     )
     assert 0 <= scores["coverage_pct"] <= 100, f"coverage_pct out of range: {scores['coverage_pct']}"
 
@@ -330,14 +349,14 @@ def test_overall_score_negative_debt_equity_worst_score():
         defensive_score=5, debt_equity=-1.0,   # negative equity → D-01 worst
         current_ratio=2.0,
         growth_g=8.0, growth_stability=0.7,
-        is_trap=False, coverage_fraction=1.0, aaa_yield=4.4,
+        coverage_fraction=1.0, aaa_yield=4.4,
     )
     scores_pos_de = overall_score(
         lynch_discount=20.0, graham_discount=15.0,
         defensive_score=5, debt_equity=0.3,    # healthy
         current_ratio=2.0,
         growth_g=8.0, growth_stability=0.7,
-        is_trap=False, coverage_fraction=1.0, aaa_yield=4.4,
+        coverage_fraction=1.0, aaa_yield=4.4,
     )
     # Negative D/E row must have lower quality score than healthy D/E row
     assert scores_neg_de["quality"] < scores_pos_de["quality"], (
@@ -385,7 +404,7 @@ def run_all():
         test_overall_score_high_quality_row,
         test_overall_score_worst_discount_floors_value_to_zero,
         test_overall_score_all_safety_missing_is_unknown,
-        test_overall_score_tripped_trap_floors_safety,
+        test_overall_score_low_distress_scores_depress_safety,
         test_overall_score_pillar_renormalization_missing_growth,
         test_overall_score_coverage_pct_reflects_present,
         test_overall_score_negative_debt_equity_worst_score,

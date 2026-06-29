@@ -44,7 +44,6 @@ BASE_ARGS = dict(
     current_ratio=2.0,
     growth_g=10.0,
     growth_stability=0.8,
-    is_trap=False,
     coverage_fraction=1.0,
     aaa_yield=4.4,
 )
@@ -64,7 +63,10 @@ def test_backward_compat():
     # yield and price sub-groups are absent (no new args passed)
     assert scores["value_yield"] is None, "value_yield should be None when no yield args passed"
     assert scores["value_price"] is None, "value_price should be None when no price-position args passed"
-    # Only 8 of 15 leaves present (lynch, graham, def, de, cr, growth_g, growth_stab, safety)
+    # Phase 7: 17 leaves total. With only Phase-5 args:
+    # present = lynch, graham, def, de, cr, growth_g, growth_stab, piotroski(50.0), altman(50.0)
+    # absent  = fcf_yield, earny_yield, shy_yield, 52w_lo, 52w_hi, 5y_lo, roic, dcf_discount
+    # = 9 of 17 present → coverage_pct < 100
     assert scores["coverage_pct"] < 100.0, (
         f"Expected coverage_pct < 100 with only Phase-5 args, got {scores['coverage_pct']}"
     )
@@ -208,10 +210,10 @@ def test_negative_yield_is_worst():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. Coverage grows to 15/15 = 100% when all leaf inputs present
+# 11. Coverage grows to 17/17 = 100% when all leaf inputs present (Phase 7)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_coverage_grows_to_15():
+def test_coverage_grows_to_17():
     scores = overall_score(
         lynch_discount=20.0,
         graham_discount=15.0,
@@ -220,7 +222,6 @@ def test_coverage_grows_to_15():
         current_ratio=2.0,
         growth_g=10.0,
         growth_stability=0.8,
-        is_trap=False,
         coverage_fraction=1.0,
         aaa_yield=4.4,
         # yield sub-group (3)
@@ -233,11 +234,16 @@ def test_coverage_grows_to_15():
         dist_5y_low=40.0,
         weeks_since_52w_low=30.0,
         weeks_since_5y_low=30.0,
-        # quality (1 new)
+        # quality (1)
         roic=20.0,
+        # Phase 7 safety (2) — piotroski/altman always float, so always counted
+        piotroski_f=7,
+        altman_z=3.0,
+        # Phase 7 value DCF (1)
+        dcf_discount_pct=20.0,
     )
     assert scores["coverage_pct"] == 100.0, (
-        f"All 15 leaf inputs present should yield coverage_pct=100.0, got {scores['coverage_pct']}"
+        f"All 17 leaf inputs present should yield coverage_pct=100.0, got {scores['coverage_pct']}"
     )
 
 
@@ -257,7 +263,7 @@ def run_all():
         test_recency_multiplier_endpoints,
         test_recency_modulates_score,
         test_negative_yield_is_worst,
-        test_coverage_grows_to_15,
+        test_coverage_grows_to_17,
     ]
     passed = 0
     failed = 0

@@ -425,7 +425,6 @@ def overall_score(
     current_ratio: float | None,
     growth_g: float | None,
     growth_stability: float | None,
-    is_trap: bool,
     coverage_fraction: float,
     aaa_yield: float,
     fcf_yield: float | None = None,
@@ -437,6 +436,9 @@ def overall_score(
     dist_5y_low: float | None = None,
     weeks_since_52w_low: float | None = None,
     weeks_since_5y_low: float | None = None,
+    piotroski_f: int | None = None,
+    altman_z: float | None = None,
+    dcf_discount_pct: float | None = None,
 ) -> dict:
     """
     Compute the 4-pillar absolute OverallScore (0–100) and return a breakdown dict.
@@ -448,27 +450,33 @@ def overall_score(
             "quality":      float | None,
             "growth":       float | None,
             "safety":       float | None,
-            "coverage_pct": float,         # 0–100 fraction of sub-scores present
+            "coverage_pct": float,         # 0–100 fraction of sub-scores present (17 leaves)
+            "piotroski":    float,         # Safety sub-score (50.0 when absent — D-04)
+            "altman":       float,         # Safety sub-score (50.0 when absent — D-04)
+            "dcf_discount": float | None,  # Value sub-score (None when DCF absent)
+            "value_dcf":    float | None,  # Value DCF sub-group
         }
 
-    Pillar design (per 05-CONTEXT.md D-02):
-      VALUE   = 3 equal sub-groups averaged:
+    Pillar design (per 05-CONTEXT.md D-02, updated Phase 7):
+      VALUE   = 4 equal sub-groups averaged:
                   1. discount  (Lynch + Graham)
                   2. yield     (FCF yield + earnings yield + shareholder yield)
                   3. price-pos (dist_52w_low * recency + dist_52w_high + dist_5y_low * recency)
+                  4. dcf       (DCF discount % — None when absent, 0 when overpriced)
       QUALITY = DefensiveScore + debt/equity + current_ratio + ROIC
       GROWTH  = growth level (g) + growth_stability
-      SAFETY  = trap gate result (D-03)
+      SAFETY  = Piotroski F-Score + Altman Z'' + defensive_score + debt/equity + current_ratio
+                (Piotroski and Altman absent → D-04 neutral 50.0; others use D-01b avg-over-present)
 
     Intentional double-use: debt_equity and current_ratio appear in BOTH Quality
-    (as graded sub-scores) and Safety (as trap-gate inputs).  Per 05-CONTEXT.md
+    (as graded sub-scores) and Safety (as distress-pillar inputs).  Per 05-CONTEXT.md
     this is deliberate — do not "clean up" the overlap.
 
     Input handling:
-      D-01  — negative/present values (WORST_DISCOUNT, negative D/E, non-positive g)
-              → sub-score 0 (worst), checked BEFORE winsorize.
-      D-01b — genuinely None values → averaged over present within pillar; missing
-              Safety = unknown (never safe).
+      D-01  — negative/present values (WORST_DISCOUNT, negative D/E, non-positive g,
+              negative DCF discount) → sub-score 0 (worst), checked BEFORE winsorize.
+      D-01b — genuinely None values → averaged over present within pillar.
+      D-04  — Piotroski and Altman absent → 50.0 (neutral), NOT avg-over-present skip.
       D-02  — pillars renormalized over present pillars (avg-over-present at pillar level).
       D-06  — yield-based discount thresholds scaled by SCORE_AAA_REFERENCE/aaa_yield.
     """
@@ -533,7 +541,23 @@ def overall_score(
 
     price_group = _avg_present([s_52w_lo, s_52w_hi, s_5y_lo])
 
-    score_value = _avg_present([discount_group, yield_group, price_group])
+    # Sub-group 4: DCF discount (Value pillar — D-01 negative-routing per D-11)
+    # Negative discount means stock trades ABOVE intrinsic → D-01 worst-score path.
+    # None means DCF is absent (sector excluded or EPS <= 0) → avg-over-present skip.
+    def _score_dcf_discount(d: float | None) -> float | None:
+        if d is None:
+            return None  # D-01b: absent → skip in avg-over-present
+        if d < 0:
+            return 0.0   # D-01: overpriced by DCF → worst score
+        return _piecewise_score(
+            _winsorize(d, SCORE_DCF_DISCOUNT_WIN_LO, SCORE_DCF_DISCOUNT_WIN_HI),
+            SCORE_DCF_DISCOUNT_BANDS,
+        )
+
+    dcf_sub   = _score_dcf_discount(dcf_discount_pct)
+    dcf_group = _avg_present([dcf_sub])
+
+    score_value = _avg_present([discount_group, yield_group, price_group, dcf_group])
 
     # ── QUALITY PILLAR ────────────────────────────────────────────────────────
     def _score_defensive(ds: float | None) -> float | None:
@@ -585,19 +609,33 @@ def overall_score(
     growth_stab_sub = _score_growth_stability(growth_stability)
     score_growth    = _avg_present([growth_g_sub, growth_stab_sub])
 
-    # ── SAFETY PILLAR (D-03 / D-01b) ─────────────────────────────────────────
-    if is_trap:
-        # Tripped gate → floor Safety to 0 regardless of coverage (D-03)
-        score_safety = float(SCORE_SAFETY_TRAP_PENALTY)
-    elif coverage_fraction == 0.0:
-        # All trap inputs absent → Safety is unknown.  D-01b: never treat as safe.
-        # Represented as None so it is averaged-over-present at the pillar level —
-        # a missing Safety pillar is unknown, not a free 60-point gift.
-        score_safety = None
-    else:
-        # Non-trapped with partial-to-full coverage: scale baseline by coverage.
-        # Phase 7 (Altman/Piotroski) will replace this interim formula.
-        score_safety = round(SCORE_SAFETY_NOTRAP_BASE * coverage_fraction, 2)
+    # ── SAFETY PILLAR (Phase 7 — TRAP-03 / D-04) ────────────────────────────
+    # Piotroski F-Score and Altman Z'' are scored Safety sub-scores.
+    # D-04: when absent (sector excluded or missing statements), each contributes
+    # 50.0 (neutral) — NOT avg-over-present skip.  This prevents sector-excluded
+    # stocks from inheriting artificially high Safety from the remaining inputs.
+    # The defensive_score, debt_equity, current_ratio sub-scores retain D-01b
+    # (avg-over-present) — they are double-used from the Quality pillar above.
+    # Intentional double-use: def_sub/de_sub/cr_sub computed in Quality block.
+    # Do NOT recompute — they feed both pillars by design.
+    # SCORE_SAFETY_TRAP_PENALTY / SCORE_SAFETY_NOTRAP_BASE are retained as
+    # constants but no longer drive the Safety calculation (deprecated — Phase 7).
+    def _score_piotroski(f: int | None) -> float:
+        """D-04: absent → neutral 50.0 (always returns float)."""
+        if f is None:
+            return 50.0
+        return _piecewise_score(float(f), SCORE_PIOTROSKI_BANDS)
+
+    def _score_altman(z: float | None) -> float:
+        """D-04: absent → neutral 50.0 (always returns float)."""
+        if z is None:
+            return 50.0
+        return _piecewise_score(_winsorize(z, -999.0, 10.0), SCORE_ALTMAN_BANDS)
+
+    piotroski_sub = _score_piotroski(piotroski_f)
+    altman_sub    = _score_altman(altman_z)
+    # def_sub, de_sub, cr_sub are reused from the Quality block above (D-01b)
+    score_safety = _avg_present([piotroski_sub, altman_sub, def_sub, de_sub, cr_sub])
 
     # ── OVERALL SCORE — weighted avg over present pillars (D-02) ─────────────
     pillars = {
@@ -611,15 +649,19 @@ def overall_score(
     present_count = 0
     total_sub_scores = 0
 
-    # Count all expected sub-scores for coverage_pct numerator/denominator (15 leaves)
+    # Count all expected sub-scores for coverage_pct numerator/denominator (17 leaves)
+    # Phase 7: removed score_safety aggregate leaf; added piotroski_sub, altman_sub,
+    # dcf_sub.  Piotroski and Altman always return float (50.0 when absent) so they
+    # are always "present" — but dcf_sub may be None and counts only when present.
     all_sub_scores = [
-        lynch_sub, graham_sub,                          # Value: discount
-        fcf_sub, earny_sub, shy_sub,                    # Value: yield
-        s_52w_lo, s_52w_hi, s_5y_lo,                   # Value: price-position
-        def_sub, de_sub, cr_sub, roic_sub,              # Quality
-        growth_g_sub, growth_stab_sub,                  # Growth
-        score_safety,                                   # Safety
-    ]
+        lynch_sub, graham_sub,                          # Value: discount (2)
+        fcf_sub, earny_sub, shy_sub,                    # Value: yield (3)
+        s_52w_lo, s_52w_hi, s_5y_lo,                   # Value: price-position (3)
+        dcf_sub,                                        # Value: DCF (1)
+        def_sub, de_sub, cr_sub, roic_sub,              # Quality (4)
+        growth_g_sub, growth_stab_sub,                  # Growth (2)
+        piotroski_sub, altman_sub,                      # Safety (2) — always float per D-04
+    ]  # total = 17 leaves
     present_sub_count = sum(1 for s in all_sub_scores if s is not None)
     total_sub_count   = len(all_sub_scores)
 
@@ -642,11 +684,15 @@ def overall_score(
         "value":          round(score_value,   2) if score_value   is not None else None,
         "quality":        round(score_quality, 2) if score_quality is not None else None,
         "growth":         round(score_growth,  2) if score_growth  is not None else None,
-        "safety":         score_safety,
+        "safety":         round(score_safety,  2) if score_safety  is not None else None,
         "coverage_pct":   coverage_pct,
         "value_discount": round(discount_group, 2) if discount_group is not None else None,
         "value_yield":    round(yield_group,    2) if yield_group    is not None else None,
         "value_price":    round(price_group,    2) if price_group    is not None else None,
+        "value_dcf":      round(dcf_group,      2) if dcf_group      is not None else None,
+        "piotroski":      round(piotroski_sub,  2),
+        "altman":         round(altman_sub,     2),
+        "dcf_discount":   round(dcf_sub,        2) if dcf_sub        is not None else None,
     }
 
 
@@ -2049,7 +2095,6 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         current_ratio       = fund["current_ratio"],
         growth_g            = g,
         growth_stability    = growth_stability,
-        is_trap             = is_trap,
         coverage_fraction   = cov_fraction,
         aaa_yield           = aaa_yield,
         fcf_yield           = fund.get("fcf_yield"),
