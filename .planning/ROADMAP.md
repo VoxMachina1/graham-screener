@@ -26,7 +26,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav (completed 2026-06-19)
   - [x] **Phase 5.1 (INSERTED): Corrective fixes** - Post-live-validation: anchored growth to the realized EPS CAGR (Finnhub `epsGrowth5Y` was inflated → fake 25% growers) and made the trap gate's EPS-stability check window-aware (8-of-10 rule was structurally 0 on 4-yr data → trap tripped for 100% of tickers / dead Safety pillar). See `phases/05-score-foundation-public-top-n/05.1-FIXES-SUMMARY.md` (completed 2026-06-20)
-- [ ] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
+- [x] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
 - [ ] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs
 
 ## Phase Details
@@ -138,7 +138,7 @@ Plans:
   3. New fundamental factors appear per ticker: FCF yield (FCF / market cap), EV/EBIT + earnings yield (EBIT/EV), ROIC as an absolute Quality input (not a Greenblatt rank-sum), and shareholder yield (dividend + net buyback) with a low-coverage flag where share-count data is sparse
   4. Each new metric is clamped/winsorized as it is added and folded into the appropriate pillar via the Phase 5 threshold engine, so the composite deepens without any single new factor able to dominate
 
-**Plans:** 2 plans (chunked: data layer + scoring fold)Plans:
+**Plans:** 2 plans (chunked: data layer + scoring fold)Plans:
 **Wave 1**
 
 - [ ] 06-01-PLAN.md — Data layer: Sector + 5y-weekly distance/recency signals + 4 cheap-factor fundamentals (FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) emitted as additive row-dict fields with coverage flags
@@ -160,7 +160,22 @@ Plans:
   4. `docs/stats.html` presents the universe overview — score distribution, buy-signal counts, sector breakdown, and data-coverage stats — and `methodology.html` is updated to document the new signals, the 4-pillar absolute scoring, the thresholds, and the sector guards
   5. The Actions workflow commits periodic (weekly/monthly) snapshots of `results.json` under `docs/data/snapshots/` (with the `!docs/data/snapshots/*.json` `.gitignore` exception and the reused min-row guard so no empty/partial snapshot lands), and an optional 30-day fundamentals cache bounds runtime/rate-limit for the heavy statement fetches
 
-**Plans:** TBD
+**Note on DATA-03:** The optional 30-day fundamentals cache is **deferred out of Phase 7** per user decision (CONTEXT.md Deferred Ideas) — it adds engineering complexity and is best added once Phase 7 runtime is benchmarked. All other Phase 7 requirements are planned below.
+
+**Plans:** 3 plans (Wave 1 -> 2 -> 3)
+Plans:
+**Wave 1**
+
+- [ ] 07-01-PLAN.md — Data layer: _compute_piotroski / _compute_altman_z / _compute_dcf_forward / _compute_dcf_reverse pure helpers + two-year statement threading + label lists + scipy dependency + offline tests (SIGNAL-08/09, DCF-01/02/03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 07-02-PLAN.md — Scoring fold: rewrite Safety pillar (drop is_trap, Piotroski+Altman subs, D-04 absent→50) + sector applicability gate + DCF as 4th Value sub-group + new flat columns + stats.json writer (TRAP-03, SECTOR-02, PAGE-02 data half)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 07-03-PLAN.md — Pages + pipeline: 5-link nav + stats.html + history.html + top.html Safety chip + .gitignore exceptions + screener.yml monthly snapshot step + methodology refresh + human-verify (PAGE-02, DATA-01/02, METH-01, TRAP-03 UI)
+
 **UI hint:** yes
 
 ## Progress
@@ -175,5 +190,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Interactive Dashboard | 2/2 | Complete | 2026-05-31 |
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
 | 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
-| 6. Cheap Factors + Sector | 0/? | Not started | - |
-| 7. Distress Signals, DCF, Stats & Snapshots | 0/? | Not started | - |
+| 6. Cheap Factors + Sector | 2/2 | Complete | 2026-06-28 |
+| 7. Distress Signals, DCF, Stats & Snapshots | 0/3 | Planned | - |
