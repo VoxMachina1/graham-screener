@@ -280,6 +280,44 @@ PILLAR_WEIGHTS = {
     "safety":  0.15,
 }
 
+# ── Safety pillar: Piotroski F-Score bands ───────────────────────────────────
+# [ASSUMED] — no empirical anchor; monitor distribution in stats.html (Phase 7)
+SCORE_PIOTROSKI_BANDS = [
+    (0, 2,   0,  20),   # distressed
+    (2, 4,  20,  40),   # weak
+    (4, 6,  40,  65),   # average
+    (6, 8,  65,  85),   # strong
+    (8, 9,  85, 100),   # very strong (9/9 rare)
+]
+
+# ── Safety pillar: Altman Z'' bands ──────────────────────────────────────────
+SCORE_ALTMAN_DISTRESS = 1.1    # [ASSUMED] Z'' below this = distress zone
+SCORE_ALTMAN_SAFE     = 2.6    # [ASSUMED] Z'' above this = safe zone
+SCORE_ALTMAN_BANDS = [         # [ASSUMED] — no empirical anchor; monitor in Phase 7
+    (-999.0,  1.1,   0,   0),  # distress zone (flat at 0)
+    (   1.1,  2.6,   0,  70),  # grey zone (interpolated)
+    (   2.6, 10.0,  70, 100),  # safe zone
+]
+
+# ── DCF config ────────────────────────────────────────────────────────────────
+DCF_ERP                 = 5.5   # [ASSUMED] equity risk premium % (config-overridable)
+DCF_TERMINAL_GROWTH_CAP = 3.0   # [ASSUMED] cap terminal growth at nominal GDP %
+DCF_EXCLUDED_SECTORS    = {"Financial Services", "Real Estate"}
+ALTMAN_EXCLUDED_SECTORS = {"Financial Services"}
+
+# ── Value sub-group 4: DCF discount ──────────────────────────────────────────
+# DCF discount % = (1 - price/intrinsic) * 100; positive = cheap.
+# Negative discount (overpriced) → D-01 worst-score path before winsorize.
+SCORE_DCF_DISCOUNT_WIN_LO = -100.0   # [ASSUMED] floor: negatives via D-01 before winsorize
+SCORE_DCF_DISCOUNT_WIN_HI =   60.0   # [ASSUMED] cap extreme DCF discounts
+SCORE_DCF_DISCOUNT_BANDS  = [        # [ASSUMED] — ascending; monitor in Phase 7
+    (-100.0, -30.0,   0,  10),       # deeply overpriced by DCF
+    ( -30.0,   0.0,  10,  40),       # modestly overpriced
+    (   0.0,  15.0,  40,  70),       # near fair value
+    (  15.0,  30.0,  70,  90),       # meaningful DCF discount
+    (  30.0,  60.0,  90, 100),       # deep DCF value
+]
+
 # ─────────────────────────────────────────────
 # LOGGING
 # ─────────────────────────────────────────────
@@ -799,6 +837,55 @@ SHARES_LABELS = [
     "Common Stock Shares Outstanding",
 ]
 
+# ── Phase 7 yfinance candidate label lists ────────────────────────────────────
+# [ASSUMED — yfinance label names vary by ticker; validated on a live Actions run]
+
+NET_INCOME_LABELS = [
+    "Net Income",
+    "Net Income Common Stockholders",
+    "Net Income Including Noncontrolling Interests",
+]
+
+TOTAL_ASSETS_LABELS = [
+    "Total Assets",
+]
+
+GROSS_PROFIT_LABELS = [
+    "Gross Profit",
+]
+
+REVENUE_LABELS = [
+    "Total Revenue",
+    "Revenue",
+    "Operating Revenue",
+]
+
+CURRENT_ASSETS_LABELS = [
+    "Current Assets",
+    "Total Current Assets",
+]
+
+CURRENT_LIABILITIES_LABELS = [
+    "Current Liabilities",
+    "Total Current Liabilities",
+    "Current Liabilities Net Minority Interest",
+]
+
+LONG_TERM_DEBT_LABELS = [
+    "Long Term Debt",
+    "Long Term Debt And Capital Lease Obligation",
+]
+
+RETAINED_EARNINGS_LABELS = [
+    "Retained Earnings",
+    "Retained Earnings Deficit",
+]
+
+TOTAL_LIABILITIES_LABELS = [
+    "Total Liabilities Net Minority Interest",
+    "Total Liabilities",
+]
+
 
 # ── Phase 6 pure helpers (internal — for tests only per CLAUDE.md §B) ─────────
 
@@ -814,6 +901,30 @@ def _yf_row(df, labels) -> float | None:
         if label in df.index:
             return _safe_float(df.loc[label, df.columns[0]])
     return None
+
+
+def _yf_row_prev(df, labels) -> float | None:
+    """
+    Return the prior-year (second column) value for the first matching label, or None.
+    Newest column is index 0; prior year is index 1.
+    Returns None if df is None, empty, or has fewer than 2 columns.
+    internal — for tests only.
+    """
+    if df is None or df.empty or df.shape[1] < 2:
+        return None
+    for label in labels:
+        if label in df.index:
+            return _safe_float(df.loc[label, df.columns[1]])
+    return None
+
+
+def _dcf_wacc(aaa_yield_pct: float) -> float:
+    """
+    WACC as a decimal: (AAA yield % + DCF_ERP %) / 100.
+    Uses the module-level DCF_ERP config constant (default 5.5%).
+    internal — for tests only.
+    """
+    return (aaa_yield_pct + DCF_ERP) / 100.0
 
 
 def _compute_price_signals(closes, price) -> dict:
