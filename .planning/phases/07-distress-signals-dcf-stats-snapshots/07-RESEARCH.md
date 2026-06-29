@@ -868,22 +868,19 @@ function safetyChipHtml(safetyScore) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **DCF as a Value sub-score or diagnostic only?**
    - What we know: D-06–D-09 define the DCF computation; D-07 feeds Stage 1 growth from the Phase 5.1 realized CAGR. The CONTEXT.md marks it as Claude's Discretion.
-   - What's unclear: Should `dcf_discount_pct` be folded into the Value pillar as a fourth sub-group, or emitted as a flat column for user inspection only?
-   - Recommendation: Add it as a fourth Value sub-group (alongside discount, yield, price-position). This makes the DCF actionable in the OverallScore without requiring a user to read a separate column. The planner should confirm this in Wave planning.
+   - **RESOLVED (07-02-PLAN, Task 1):** `dcf_discount_pct` is added as a fourth Value sub-group alongside discount, yield, and price-position. Coverage leaf count = 17.
 
 2. **_compute_piotroski() gets pre-fetched DataFrames or re-fetches?**
    - What we know: `get_yf_price_and_history()` currently fetches `t.income_stmt`, `t.balance_sheet`, `t.cashflow` but reads only specific rows from them. The DataFrames themselves are not returned.
-   - What's unclear: Should `get_yf_price_and_history()` return the raw DataFrames for Piotroski / Altman to use, or should the Piotroski/Altman helpers be called inside the function while the Ticker object is in scope?
-   - Recommendation: Pass the raw DataFrames back in the return dict (add `income_stmt_df`, `balance_sheet_df`, `cashflow_df` keys, value = the DataFrame | None). This keeps all yfinance I/O in one function and makes the compute helpers fully testable offline with fixture DataFrames. The planner should verify memory implications (DataFrames for 550 tickers are not kept simultaneously — each is processed and discarded).
+   - **RESOLVED (07-01-PLAN, Task 2):** `get_yf_price_and_history()` returns raw DataFrames in the result dict (`income_stmt_df`, `balance_sheet_df`, `cashflow_df` keys, value = DataFrame | None). Helpers receive pre-split single-year DataFrames: `_compute_piotroski(inc_curr, inc_prev, bs_curr, bs_prev, cf_curr, cf_prev)`.
 
 3. **Coverage leaf count after Phase 7 changes?**
    - What we know: Phase 6 established 15 leaves. Phase 7 removes the `score_safety` aggregate leaf and adds `piotroski_sub` and `altman_sub`. Optionally adds `dcf_discount_sub`.
-   - What's unclear: Exact count depends on whether DCF discount is scored (17 leaves) or just diagnostic (16 leaves).
-   - Recommendation: If DCF discount is added as a Value sub-group → 17 leaves. Document the new count in a comment in `overall_score()` matching the Phase 6 pattern.
+   - **RESOLVED (07-02-PLAN, Task 1):** DCF discount is a scored Value sub-group → coverage leaf count = 17. Documented in a comment in `overall_score()` matching the Phase 6 pattern.
 
 ---
 
