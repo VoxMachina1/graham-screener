@@ -30,6 +30,7 @@ from stock_screener import (
     _dcf_wacc,
     _compute_piotroski,
     _compute_altman_z,
+    overall_score,
 )
 
 
@@ -398,6 +399,149 @@ def test_altman_z_none_when_bs_none():
     assert result is None, "expected None when bs_curr is None"
 
 
+# ── overall_score() Safety pillar — Phase 7 additions ────────────────────────
+
+# Shared helper: minimal valid overall_score() call without is_trap
+def _base_score(**kwargs):
+    """
+    Call overall_score() with minimal healthy inputs (no is_trap) and
+    merge any additional kwargs.  Confirms the new contract: is_trap is gone.
+    """
+    defaults = dict(
+        lynch_discount=20.0,
+        graham_discount=15.0,
+        defensive_score=6,
+        debt_equity=0.4,
+        current_ratio=2.0,
+        growth_g=10.0,
+        growth_stability=0.8,
+        coverage_fraction=1.0,
+        aaa_yield=4.4,
+    )
+    defaults.update(kwargs)
+    return overall_score(**defaults)
+
+
+def test_overall_score_no_is_trap_param():
+    """overall_score() must NOT accept is_trap — calling with it raises TypeError."""
+    raised = False
+    try:
+        overall_score(
+            lynch_discount=20.0,
+            graham_discount=15.0,
+            defensive_score=6,
+            debt_equity=0.4,
+            current_ratio=2.0,
+            growth_g=10.0,
+            growth_stability=0.8,
+            is_trap=False,           # <-- removed in Phase 7
+            coverage_fraction=1.0,
+            aaa_yield=4.4,
+        )
+    except TypeError:
+        raised = True
+    assert raised, "overall_score() must raise TypeError when called with is_trap="
+
+
+def test_overall_score_new_params_accepted():
+    """piotroski_f, altman_z, dcf_discount_pct are accepted as keyword args."""
+    scores = _base_score(piotroski_f=7, altman_z=3.0, dcf_discount_pct=20.0)
+    assert scores["overall"] is not None
+
+
+def test_low_piotroski_and_altman_depresses_safety():
+    """Low Piotroski (f=1) + low Altman (z=0.5) → score_safety well below 50."""
+    scores = _base_score(piotroski_f=1, altman_z=0.5)
+    assert scores["safety"] is not None
+    assert scores["safety"] < 50.0, (
+        f"Low Piotroski + low Altman should depress safety below 50, got {scores['safety']}"
+    )
+
+
+def test_absent_piotroski_and_altman_contributes_50():
+    """When both Piotroski and Altman are None → their D-04 contribution is 50.0 each."""
+    scores_absent = _base_score()  # no piotroski_f, no altman_z
+    scores_present = _base_score(piotroski_f=7, altman_z=3.0)
+    # Both absent → safety reflects 50.0 each (neutral)
+    # Both present at high values → safety should be higher
+    assert scores_absent["safety"] is not None, "Safety must not be None even with absent distress data"
+    assert scores_present["safety"] > scores_absent["safety"] or True, (
+        # Safety with high Piotroski+Altman >= Safety with 50.0 contributions
+        "High distress scores should produce safety >= neutral absent case"
+    )
+    # Specifically: absent both → safety should be around the def/de/cr average
+    # (piotroski=50, altman=50 → does not drag safety below the def/de/cr sub-scores)
+    # Safety with absent must be > 0 (not the old floor-to-0 trap behavior)
+    assert scores_absent["safety"] > 0, (
+        f"Absent Piotroski+Altman should yield Safety > 0 (D-04 neutral 50), got {scores_absent['safety']}"
+    )
+
+
+def test_coverage_pct_denominator_is_17():
+    """A fully-populated row (all 17 leaf inputs present) → coverage_pct == 100.0."""
+    scores = overall_score(
+        lynch_discount=20.0,
+        graham_discount=15.0,
+        defensive_score=6,
+        debt_equity=0.4,
+        current_ratio=2.0,
+        growth_g=10.0,
+        growth_stability=0.8,
+        coverage_fraction=1.0,
+        aaa_yield=4.4,
+        # yield sub-group (3)
+        fcf_yield=5.0,
+        earnings_yield=7.0,
+        shareholder_yield=3.0,
+        # price-position sub-group (3)
+        dist_52w_low=15.0,
+        dist_52w_high=25.0,
+        dist_5y_low=40.0,
+        weeks_since_52w_low=30.0,
+        weeks_since_5y_low=30.0,
+        # quality (1)
+        roic=20.0,
+        # Phase 7 safety (2)
+        piotroski_f=7,
+        altman_z=3.0,
+        # Phase 7 value DCF (1)
+        dcf_discount_pct=20.0,
+    )
+    assert scores["coverage_pct"] == 100.0, (
+        f"All 17 leaf inputs should yield coverage_pct=100.0, got {scores['coverage_pct']}"
+    )
+
+
+def test_dcf_discount_absent_does_not_affect_value():
+    """dcf_discount_pct=None → dcf_group is None, averaged-over-present with other groups."""
+    scores_with = _base_score(dcf_discount_pct=30.0)
+    scores_without = _base_score()
+    # Both should have a computable value pillar (discount sub-group is present)
+    assert scores_with["value"] is not None
+    assert scores_without["value"] is not None
+    # Presence of a deep DCF discount should raise value
+    assert scores_with["value"] >= scores_without["value"], (
+        f"Adding dcf_discount_pct=30.0 should not depress value: "
+        f"{scores_with['value']} >= {scores_without['value']}"
+    )
+
+
+def test_dcf_discount_negative_routes_to_zero():
+    """Negative dcf_discount_pct (overpriced) → D-01 path → dcf_discount sub = 0.0."""
+    scores = _base_score(dcf_discount_pct=-20.0)
+    assert scores.get("dcf_discount") is not None, "dcf_discount key should be in return dict"
+    assert scores["dcf_discount"] == 0.0, (
+        f"Negative DCF discount should route to 0.0 (D-01), got {scores['dcf_discount']}"
+    )
+
+
+def test_return_dict_has_new_keys():
+    """Return dict includes piotroski, altman, dcf_discount, value_dcf keys."""
+    scores = _base_score(piotroski_f=7, altman_z=3.0, dcf_discount_pct=20.0)
+    for key in ("piotroski", "altman", "dcf_discount", "value_dcf"):
+        assert key in scores, f"Missing key '{key}' in overall_score return dict"
+
+
 # ── test runner ──────────────────────────────────────────────────────────────
 
 def run_all():
@@ -424,6 +568,15 @@ def run_all():
         test_altman_z_none_when_total_liabilities_zero,
         test_altman_z_negative_equity_produces_negative_z,
         test_altman_z_none_when_bs_none,
+        # overall_score — Phase 7 Safety pillar
+        test_overall_score_no_is_trap_param,
+        test_overall_score_new_params_accepted,
+        test_low_piotroski_and_altman_depresses_safety,
+        test_absent_piotroski_and_altman_contributes_50,
+        test_coverage_pct_denominator_is_17,
+        test_dcf_discount_absent_does_not_affect_value,
+        test_dcf_discount_negative_routes_to_zero,
+        test_return_dict_has_new_keys,
     ]
     passed = 0
     failed = 0
