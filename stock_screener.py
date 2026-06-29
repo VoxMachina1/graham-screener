@@ -26,6 +26,7 @@ from pathlib import Path
 from datetime import datetime
 from fredapi import Fred
 from dotenv import load_dotenv
+from scipy.optimize import brentq
 
 # Load .env when running locally; no-op in GitHub Actions (env vars already set)
 load_dotenv()
@@ -1269,6 +1270,109 @@ def _compute_altman_z(bs_curr, inc_curr) -> float | None:
     X4 = equity / total_liabilities
 
     return 6.56 * X1 + 3.26 * X2 + 6.72 * X3 + 1.05 * X4
+
+
+def _compute_dcf_forward(
+    eps,
+    g_cagr_pct: float,
+    aaa_yield_pct: float,
+    price: float,
+) -> tuple:
+    """
+    Compute two-stage DCF intrinsic value and discount percentage.
+
+    Stage 1: 5 years of EPS at g_cagr growth rate, discounted at WACC.
+    Stage 2: Gordon Growth terminal value using g_terminal = min(g_cagr, DCF_TERMINAL_GROWTH_CAP/100).
+    WACC = _dcf_wacc(aaa_yield_pct) = (aaa_yield_pct + DCF_ERP) / 100.
+
+    Returns (intrinsic_value, discount_pct) where discount_pct = (1 - price/intrinsic)*100.
+    Positive discount = cheap (price below intrinsic). Negative = overpriced.
+
+    Returns (None, None) when eps is None or eps <= 0.
+    Raises ValueError when terminal_growth >= WACC (misconfigured constants).
+    internal — for tests only.
+    """
+    if eps is None or eps <= 0:
+        return (None, None)
+
+    wacc = _dcf_wacc(aaa_yield_pct)
+    g = g_cagr_pct / 100.0
+    g_terminal = min(g, DCF_TERMINAL_GROWTH_CAP / 100.0)
+
+    if g_terminal >= wacc:
+        raise ValueError(
+            f"DCF config error: terminal_growth ({g_terminal:.4f}) >= WACC ({wacc:.4f}). "
+            f"Increase DCF_ERP or reduce DCF_TERMINAL_GROWTH_CAP."
+        )
+
+    # Stage 1: sum PV of 5 years of EPS
+    pv_stage1 = 0.0
+    eps_t = eps
+    for t in range(1, 6):
+        eps_t = eps_t * (1 + g)
+        pv_stage1 += eps_t / (1 + wacc) ** t
+
+    # Stage 2: terminal value (Gordon Growth Model) discounted to present
+    tv = eps_t * (1 + g_terminal) / (wacc - g_terminal)
+    pv_tv = tv / (1 + wacc) ** 5
+
+    intrinsic = pv_stage1 + pv_tv
+    discount_pct = (1 - price / intrinsic) * 100
+
+    return (intrinsic, discount_pct)
+
+
+def _compute_dcf_reverse(
+    price: float,
+    eps,
+    aaa_yield_pct: float,
+    g_stage1_pct: float,
+) -> tuple:
+    """
+    Reverse DCF: find the implied growth rate that makes the DCF intrinsic value
+    equal the current market price, using scipy.optimize.brentq.
+
+    Returns (implied_growth_pct, True) when brentq converges.
+    Returns (None, False) when no sign change exists in the bracket [-50, 100]
+    (no root in that range) or on solver error.
+
+    Non-convergence is the expected outcome for extreme valuations (very cheap or
+    very expensive stocks where the bracket has no sign change) — never a silent
+    default per D-09.
+
+    Guards: eps None or <= 0 -> (None, False).
+    internal — for tests only.
+    """
+    if eps is None or eps <= 0:
+        return (None, False)
+
+    wacc = _dcf_wacc(aaa_yield_pct)
+
+    def _dcf_value(g_pct: float) -> float:
+        """Returns DCF intrinsic value at g_pct% growth minus current price."""
+        g = g_pct / 100.0
+        g_term = min(g, DCF_TERMINAL_GROWTH_CAP / 100.0)
+        # Guard: clamp to prevent Gordon Growth denominator from going to zero
+        if g_term >= wacc:
+            g_term = wacc - 0.001
+        pv = 0.0
+        eps_t = eps
+        for t in range(1, 6):
+            eps_t = eps_t * (1 + g)
+            pv += eps_t / (1 + wacc) ** t
+        tv = eps_t * (1 + g_term) / (wacc - g_term)
+        pv += tv / (1 + wacc) ** 5
+        return pv - price
+
+    try:
+        lo, hi = -50.0, 100.0
+        # Bracket guard: brentq requires opposite signs at endpoints
+        if _dcf_value(lo) * _dcf_value(hi) > 0:
+            return (None, False)
+        root = brentq(_dcf_value, lo, hi, xtol=1e-4, maxiter=100)
+        return (round(root, 2), True)
+    except (ValueError, RuntimeError):
+        return (None, False)
 
 
 def get_yf_price_and_history(ticker: str) -> dict:
