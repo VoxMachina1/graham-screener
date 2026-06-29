@@ -153,13 +153,21 @@ def test_dcf_wacc_higher_yield():
 # ── _compute_piotroski ───────────────────────────────────────────────────────
 
 def test_piotroski_all_pass_returns_9():
-    """All 9 criteria pass → F-Score = 9."""
-    # Construct two-year statements where every criterion is clearly positive.
-    # curr: net_income=1000, ocf=2000, gross_profit=4000, revenue=10000
-    #   total_assets=20000, current_assets=8000, current_liabilities=3000
-    #   long_term_debt=2000, equity=10000, shares (via SHARES_LABELS in balance sheet)
-    # prev: slightly worse on each comparison criterion to ensure improvement.
+    """All 9 criteria pass -> F-Score = 9.
 
+    Fixture design notes (hand-verified per criterion):
+      F1: ROA = 1000/20000 = 0.05 > 0  PASS
+      F2: OCF = 2000 > 0               PASS
+      F3: ROA_c=0.05 > ROA_p=1000/19000=0.0526... Wait -- use ta_p=25000 to ensure
+          ROA_p = 800/25000 = 0.032 < ROA_c = 0.05  PASS
+      F4: OCF/TA=2000/20000=0.1 > ROA=0.05  PASS
+      F5: ltd_rc = 2000/avg(20000,25000)=2000/22500=0.089
+          ltd_rp = 2500/25000=0.10  -> 0.089 < 0.10  PASS
+      F6: CR_c=8000/3000=2.67 > CR_p=7000/3500=2.0  PASS
+      F7: sh_c=900 <= sh_p=1000  PASS
+      F8: gm_c=4000/10000=0.40 > gm_p=3200/9000=0.356  PASS
+      F9: at_c=10000/20000=0.50 > at_p=9000/25000=0.36  PASS
+    """
     inc_curr = _make_df({
         "Net Income":     (1_000, 800),
         "Gross Profit":   (4_000, 3_200),
@@ -183,8 +191,9 @@ def test_piotroski_all_pass_returns_9():
         # Shares: fewer now than before (no dilution: shares_curr <= shares_prev)
         "Ordinary Shares Number":                 (900,    1_000),
     })
+    # ta_p=25000 ensures F3 (ROA improves), F5 (leverage dec) and F9 (AT improves) all pass
     bs_prev = _make_df({
-        "Total Assets":                           (18_000, 16_000),
+        "Total Assets":                           (25_000, 23_000),
         "Total Current Assets":                   (7_000,  6_000),
         "Total Current Liabilities":              (3_500,  4_000),
         "Long Term Debt":                         (2_500,  3_000),
@@ -205,29 +214,44 @@ def test_piotroski_all_pass_returns_9():
 
 
 def test_piotroski_all_fail_returns_0():
-    """All 9 criteria fail → F-Score = 0."""
-    # curr: negative net_income, negative ocf; all ratios worse than prev
+    """All 9 criteria fail -> F-Score = 0.
+
+    Fixture design notes (hand-verified per criterion):
+      F1: ROA = -100/20000 = -0.005 <= 0  FAIL
+      F2: OCF = -200 <= 0  FAIL
+      F3: ROA_c=-0.005 > ROA_p=-50/19000=-0.00263 ?  ROA improved (worsening means ROA_p is -0.00263
+          which is less negative -- actually ROA worsened curr < prev.
+          ROA_c=-100/20000=-0.005 < ROA_p=-50/19000=-0.00263 -> NOT improved  FAIL
+      F4: OCF/TA=-200/20000=-0.01 > ROA=-0.005? NO, -0.01 < -0.005  FAIL
+      F5: ltd_rc=3000/avg(20000,19000)=3000/19500=0.1538
+          ltd_rp=2500/19000=0.1316 -> 0.1538 > 0.1316 -> leverage INCREASED  FAIL
+      F6: CR_c=3000/4000=0.75 > CR_p=3200/3500=0.914? NO  FAIL
+      F7: sh_c=1200 > sh_p=1000 -> dilution  FAIL
+      F8: gm_c=1000/9000=0.111 > gm_p=1200/9000=0.133? NO  FAIL
+          (use rev_curr=9000 so asset turnover is also lower)
+      F9: at_c=9000/20000=0.45 > at_p=9000/19000=0.473? NO  FAIL
+    """
     inc_curr = _make_df({
         "Net Income":     (-100, -50),
-        "Gross Profit":   (1_000, 1_200),   # gross margin worsens: gp/rev curr < prev
-        "Total Revenue":  (10_000, 9_000),
+        "Gross Profit":   (1_000, 1_100),   # gross margin curr: 1000/9000=0.111
+        "Total Revenue":  (9_000, 8_500),    # rev_curr=9000 keeps AT low
         "EBIT":           (-50, 50),
     })
     inc_prev = _make_df({
         "Net Income":     (-50, -30),
-        "Gross Profit":   (1_200, 1_100),
-        "Total Revenue":  (9_000, 8_500),
+        "Gross Profit":   (1_200, 1_100),    # gross margin prev: 1200/9000=0.133 > 0.111
+        "Total Revenue":  (9_000, 8_500),    # same prev revenue; AT_prev=9000/19000>AT_curr
         "EBIT":           (50, 80),
     })
     bs_curr = _make_df({
         "Total Assets":                           (20_000, 19_000),
         "Total Current Assets":                   (3_000,  3_200),
-        "Total Current Liabilities":              (4_000,  3_500),  # CR worsens
-        "Long Term Debt":                         (3_000,  2_500),  # leverage increases
+        "Total Current Liabilities":              (4_000,  3_500),   # CR worsens
+        "Long Term Debt":                         (3_000,  2_500),   # leverage increases
         "Stockholders Equity":                    (8_000,  9_000),
         "Retained Earnings":                      (2_000,  3_000),
         "Total Liabilities Net Minority Interest": (10_000, 9_000),
-        "Ordinary Shares Number":                 (1_200,  1_000),  # dilution
+        "Ordinary Shares Number":                 (1_200,  1_000),   # dilution
     })
     bs_prev = _make_df({
         "Total Assets":                           (19_000, 18_000),
@@ -240,7 +264,7 @@ def test_piotroski_all_fail_returns_0():
         "Ordinary Shares Number":                 (1_000,  900),
     })
     cf_curr = _make_df({
-        "Operating Cash Flow": (-200, 100),   # F2: OCF < 0
+        "Operating Cash Flow": (-200, 100),    # F2: OCF < 0; F4: -0.01 < ROA -0.005
     })
     cf_prev = _make_df({
         "Operating Cash Flow": (100, 90),

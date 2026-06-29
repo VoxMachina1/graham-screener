@@ -1053,6 +1053,224 @@ def _compute_shareholder_yield(div_yield, shares_now, shares_prev) -> tuple:
     return (total, partial_flag)
 
 
+def _compute_piotroski(
+    inc_curr, inc_prev,
+    bs_curr, bs_prev,
+    cf_curr, cf_prev,
+) -> int | None:
+    """
+    Compute Piotroski F-Score (0–9) from two years of financial statement DataFrames.
+
+    Each DataFrame has newest-first columns (columns[0] = current year, columns[1] = prior year).
+    The helper splits each DataFrame at columns[0] — it receives separate curr/prev DataFrames
+    so the caller can pass a single-year DataFrame as curr and None as prev when only one year
+    is available.
+
+    Returns None when all current-year statements are None (no data at all).
+    When prior-year DataFrames are None, two-year comparison criteria (F3, F5, F6, F7, F8, F9)
+    are skipped rather than failed.
+
+    Absent-data strategy per RESEARCH.md lines 295-299:
+      - Missing single-year input → criterion fails (contributes 0).
+      - Missing prior-year input for a comparison criterion → criterion skipped (not counted).
+      - All statements absent → return None.
+
+    Columns must be newest-first (do NOT sort_index — per Pitfall 1 in RESEARCH.md).
+    internal — for tests only.
+    """
+    # If all current-year statements are None, return None.
+    if inc_curr is None and bs_curr is None and cf_curr is None:
+        return None
+
+    def _get(df, labels):
+        """Read current-year (columns[0]) value for the first matching label."""
+        if df is None or df.empty or df.shape[1] < 1:
+            return None
+        for label in labels:
+            if label in df.index:
+                return _safe_float(df.loc[label, df.columns[0]])
+        return None
+
+    def _get_prev(df, labels):
+        """Read prior-year (columns[0]) from a prior-year DataFrame."""
+        if df is None or df.empty or df.shape[1] < 1:
+            return None
+        for label in labels:
+            if label in df.index:
+                return _safe_float(df.loc[label, df.columns[0]])
+        return None
+
+    # ── Current-year inputs ──────────────────────────────────────────────────
+    net_income_curr = _get(inc_curr, NET_INCOME_LABELS)
+    total_assets_curr = _get(bs_curr, TOTAL_ASSETS_LABELS)
+    ocf_curr = _get(cf_curr, OCF_LABELS)
+    gross_profit_curr = _get(inc_curr, GROSS_PROFIT_LABELS)
+    revenue_curr = _get(inc_curr, REVENUE_LABELS)
+    current_assets_curr = _get(bs_curr, CURRENT_ASSETS_LABELS)
+    current_liabilities_curr = _get(bs_curr, CURRENT_LIABILITIES_LABELS)
+    long_term_debt_curr = _get(bs_curr, LONG_TERM_DEBT_LABELS)
+    shares_curr = _get(bs_curr, SHARES_LABELS)
+
+    # ── Prior-year inputs (from separate prev DataFrames, read at columns[0]) ─
+    net_income_prev = _get_prev(inc_prev, NET_INCOME_LABELS)
+    total_assets_prev = _get_prev(bs_prev, TOTAL_ASSETS_LABELS)
+    gross_profit_prev = _get_prev(inc_prev, GROSS_PROFIT_LABELS)
+    revenue_prev = _get_prev(inc_prev, REVENUE_LABELS)
+    current_assets_prev = _get_prev(bs_prev, CURRENT_ASSETS_LABELS)
+    current_liabilities_prev = _get_prev(bs_prev, CURRENT_LIABILITIES_LABELS)
+    long_term_debt_prev = _get_prev(bs_prev, LONG_TERM_DEBT_LABELS)
+    shares_prev = _get_prev(bs_prev, SHARES_LABELS)
+
+    score = 0
+    criteria_counted = 0  # track how many criteria were actually evaluated
+
+    # F1: ROA > 0 (Net Income / Total Assets, current year)
+    if net_income_curr is not None and total_assets_curr:
+        criteria_counted += 1
+        if (net_income_curr / total_assets_curr) > 0:
+            score += 1
+    elif net_income_curr is not None:
+        # total_assets missing → conservative fail
+        criteria_counted += 1
+
+    # F2: OCF > 0 (current year)
+    if ocf_curr is not None:
+        criteria_counted += 1
+        if ocf_curr > 0:
+            score += 1
+    else:
+        criteria_counted += 1  # missing → fail
+
+    # F3: ROA improved (requires prior year) — skip if prev absent
+    if net_income_prev is not None and total_assets_prev and total_assets_curr:
+        criteria_counted += 1
+        roa_curr = (net_income_curr / total_assets_curr) if net_income_curr is not None and total_assets_curr else None
+        roa_prev = net_income_prev / total_assets_prev
+        if roa_curr is not None and roa_curr > roa_prev:
+            score += 1
+
+    # F4: Accruals — OCF / Total Assets > ROA (quality of earnings)
+    if ocf_curr is not None and total_assets_curr and net_income_curr is not None:
+        criteria_counted += 1
+        roa_curr = net_income_curr / total_assets_curr
+        cfo_assets = ocf_curr / total_assets_curr
+        if cfo_assets > roa_curr:
+            score += 1
+    elif total_assets_curr:
+        criteria_counted += 1  # missing ocf or net_income → fail
+
+    # F5: Leverage decreased (long_term_debt / avg_total_assets) — skip if prev absent
+    if long_term_debt_prev is not None and total_assets_prev and total_assets_curr:
+        criteria_counted += 1
+        avg_assets = (total_assets_curr + total_assets_prev) / 2.0
+        ltd_ratio_curr = (long_term_debt_curr / avg_assets) if long_term_debt_curr is not None else 0
+        ltd_ratio_prev = long_term_debt_prev / total_assets_prev
+        if ltd_ratio_curr < ltd_ratio_prev:
+            score += 1
+
+    # F6: Current ratio improved — skip if prev absent
+    if current_assets_prev is not None and current_liabilities_prev and current_liabilities_curr:
+        criteria_counted += 1
+        cr_curr = (current_assets_curr / current_liabilities_curr) if current_assets_curr is not None else 0
+        cr_prev = current_assets_prev / current_liabilities_prev
+        if cr_curr > cr_prev:
+            score += 1
+
+    # F7: No dilution (shares outstanding did not increase) — skip if prev absent
+    if shares_prev is not None and shares_curr is not None:
+        criteria_counted += 1
+        if shares_curr <= shares_prev:
+            score += 1
+
+    # F8: Gross margin improved — skip if prev absent
+    if gross_profit_prev is not None and revenue_prev and revenue_curr:
+        criteria_counted += 1
+        gm_curr = (gross_profit_curr / revenue_curr) if gross_profit_curr is not None else 0
+        gm_prev = gross_profit_prev / revenue_prev
+        if gm_curr > gm_prev:
+            score += 1
+
+    # F9: Asset turnover improved (Revenue / Total Assets) — skip if prev absent
+    if revenue_prev is not None and total_assets_prev and total_assets_curr and revenue_curr:
+        criteria_counted += 1
+        at_curr = revenue_curr / total_assets_curr
+        at_prev = revenue_prev / total_assets_prev
+        if at_curr > at_prev:
+            score += 1
+
+    if criteria_counted == 0:
+        return None
+    return score
+
+
+def _compute_altman_z(bs_curr, inc_curr) -> float | None:
+    """
+    Compute Altman Z'' score for non-financial, non-manufacturer firms.
+    Formula: Z'' = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+
+      X1 = Working Capital / Total Assets  (WC = Current Assets - Current Liabilities)
+      X2 = Retained Earnings / Total Assets
+      X3 = EBIT / Total Assets
+      X4 = Book Value of Equity / Total Liabilities
+
+    Returns None if total_assets is None/0, total_liabilities is None/0, or any
+    numerator input that would make the formula meaningless is absent.
+    Negative Z'' (e.g. deeply distressed / negative equity) is returned as-is — the
+    band table starts at -999.0 to handle it correctly.
+
+    internal — for tests only.
+    """
+    if bs_curr is None or bs_curr.empty:
+        return None
+
+    def _get(df, labels):
+        if df is None or df.empty or df.shape[1] < 1:
+            return None
+        for label in labels:
+            if label in df.index:
+                return _safe_float(df.loc[label, df.columns[0]])
+        return None
+
+    total_assets = _get(bs_curr, TOTAL_ASSETS_LABELS)
+    if not total_assets:
+        return None
+
+    total_liabilities = _get(bs_curr, TOTAL_LIABILITIES_LABELS)
+    if not total_liabilities:
+        return None
+
+    current_assets = _get(bs_curr, CURRENT_ASSETS_LABELS)
+    current_liabilities = _get(bs_curr, CURRENT_LIABILITIES_LABELS)
+    retained_earnings = _get(bs_curr, RETAINED_EARNINGS_LABELS)
+    equity = _get(bs_curr, EQUITY_LABELS)
+    ebit = _get(inc_curr, EBIT_LABELS) if inc_curr is not None else None
+
+    # Working capital
+    if current_assets is None or current_liabilities is None:
+        return None
+    wc = current_assets - current_liabilities
+
+    # X1 = WC / TA
+    X1 = wc / total_assets
+
+    # X2 = RE / TA (retained earnings may be negative)
+    if retained_earnings is None:
+        return None
+    X2 = retained_earnings / total_assets
+
+    # X3 = EBIT / TA
+    if ebit is None:
+        return None
+    X3 = ebit / total_assets
+
+    # X4 = BVE / TL
+    if equity is None:
+        return None
+    X4 = equity / total_liabilities
+
+    return 6.56 * X1 + 3.26 * X2 + 6.72 * X3 + 1.05 * X4
+
+
 def get_yf_price_and_history(ticker: str) -> dict:
     """
     Fetch price, historical EPS, dividends, sector, 5y weekly history, and
@@ -1087,6 +1305,10 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "equity":             None,
         "shares_now":         None,
         "shares_prev":        None,
+        # Phase 7 additions: raw DataFrames for Piotroski/Altman (newest-first columns)
+        "income_stmt_df":     None,
+        "balance_sheet_df":   None,
+        "cashflow_df":        None,
     }
     try:
         t = yf.Ticker(ticker)
@@ -1155,6 +1377,14 @@ def get_yf_price_and_history(ticker: str) -> dict:
                     result["shares_now"]  = _safe_float(shares_row.iloc[0]) if len(shares_row) >= 1 else None
                     result["shares_prev"] = _safe_float(shares_row.iloc[1]) if len(shares_row) >= 2 else None
                     break
+
+        # ── Phase 7: store raw unsorted DataFrames for Piotroski / Altman ──
+        # Store the raw Ticker attributes (newest-first columns).
+        # Do NOT use the sorted `inc` local above — that is oldest→newest (for EPS).
+        # _compute_piotroski / _compute_altman_z read columns[0] as current year.
+        result["income_stmt_df"]   = t.income_stmt
+        result["balance_sheet_df"] = t.balance_sheet
+        result["cashflow_df"]      = t.cashflow
 
     except Exception as e:
         log.warning(f"yfinance error for {ticker}: {e}")
