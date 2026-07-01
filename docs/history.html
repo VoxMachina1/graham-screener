@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>History &mdash; Lynch &amp; Graham Screener</title>
+
+  <!-- Google Fonts preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Project shared CSS (Nord theme, nav, toolbar, card styles) -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Site header: title + nav ── -->
+  <header class="site-header">
+    <span class="site-title">Lynch &amp; Graham Screener</span>
+    <nav class="main-nav" aria-label="Site navigation">
+    </nav>
+  </header>
+
+  <!-- ── History content ── -->
+  <main id="history-container" style="max-width:860px;margin:0 auto;padding:1.2rem;"></main>
+
+  <!-- ── Shared primitives (escHtml, buildNav) ── -->
+  <script src="app.js"></script>
+
+  <script>
+  /* ─────────────────────────────────────────────────────────────────────────
+     Lynch & Graham Screener — History page (DATA-01 extension, D-13)
+     Dead-simple snapshot list: fetches docs/data/snapshots/index.json and
+     renders a dated list of download links. No Tabulator, no charts.
+  ───────────────────────────────────────────────────────────────────────── */
+
+  // ── Parse the date out of a "YYYY-MM-DD.json" filename ─────────────────────
+  function dateFromFilename(filename) {
+    var m = /^(\d{4}-\d{2}-\d{2})\.json$/.exec(filename);
+    return m ? m[1] : filename;
+  }
+
+  var CAVEAT_HTML =
+    '<p style="color:#d8dee9;font-size:0.85rem;">' +
+    'Snapshots reflect the universe and scoring methodology as of their listed date. ' +
+    'Thresholds, scoring bands, and available signals may have changed since a given ' +
+    'snapshot was taken &mdash; do not assume methodology consistency across snapshots.' +
+    '</p>';
+
+  function renderHistory(snapshots) {
+    var container = document.getElementById("history-container");
+    var html = "<h2>Snapshot History</h2>" + CAVEAT_HTML;
+
+    if (!snapshots || snapshots.length === 0) {
+      html += '<p style="color:#d8dee9;">No snapshots yet. Snapshots are committed automatically ' +
+              "on the first weekday of each month.</p>";
+      container.innerHTML = html;
+      return;
+    }
+
+    // Newest-first for display (manifest itself is stored newest-last).
+    var sorted = snapshots.slice().sort().reverse();
+
+    html += '<table class="checklist-table"><thead><tr>' +
+      "<th>Date</th><th>Download</th>" +
+      "</tr></thead><tbody>";
+    for (var i = 0; i < sorted.length; i++) {
+      var filename = sorted[i];
+      var date = dateFromFilename(filename);
+      var href = "data/snapshots/" + encodeURIComponent(filename);
+      html += "<tr>" +
+        "<td>" + escHtml(date) + "</td>" +
+        '<td><a href="' + href + '" download>' + escHtml(filename) + "</a></td>" +
+        "</tr>";
+    }
+    html += "</tbody></table>";
+
+    container.innerHTML = html;
+  }
+
+  // ── Data fetch (cache-busted). A missing manifest (404) is expected until
+  //    the first first-weekday-of-month Actions run — handled gracefully. ────
+  fetch("data/snapshots/index.json?v=" + Date.now())
+    .then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status + " fetching snapshots manifest");
+      return r.json();
+    })
+    .then(function(data) {
+      buildNav("history");
+      renderHistory((data && data.snapshots) || []);
+    })
+    .catch(function(err) {
+      buildNav("history");
+      renderHistory([]);
+      console.warn("History manifest not available yet:", err);
+    });
+  </script>
+
+</body>
+</html>

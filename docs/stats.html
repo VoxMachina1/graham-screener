@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stats &mdash; Lynch &amp; Graham Screener</title>
+
+  <!-- Google Fonts preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Project shared CSS (Nord theme, nav, toolbar, card styles) -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Stale-data banner (hidden until JS shows it) ── -->
+  <div class="stale-banner" id="stale-banner">
+    Warning: Data is more than 3 days old. Run the screener to refresh.
+  </div>
+
+  <!-- ── Site header: title + nav + freshness badge ── -->
+  <header class="site-header">
+    <span class="site-title">Lynch &amp; Graham Screener</span>
+    <nav class="main-nav" aria-label="Site navigation">
+    </nav>
+    <span class="freshness-badge" id="freshness-badge">Loading data&hellip;</span>
+  </header>
+
+  <!-- ── Stats content ── -->
+  <main id="stats-container" style="max-width:860px;margin:0 auto;padding:1.2rem;"></main>
+
+  <!-- ── Shared primitives (SIGNAL_COLORS, formatters, buildNav) ── -->
+  <script src="app.js"></script>
+
+  <script>
+  /* ─────────────────────────────────────────────────────────────────────────
+     Lynch & Graham Screener — Stats page (PAGE-02)
+     Read-only universe overview rendered from docs/data/stats.json
+     (computed in Python by _compute_stats(), see 07-02-SUMMARY.md).
+     No charting library (D-14) — plain HTML cards and tables only.
+  ───────────────────────────────────────────────────────────────────────── */
+
+  // ── Small card builder (mirrors top-card visual style via inline styles;
+  //    no new CSS classes added per plan file scope) ─────────────────────────
+  function statCardHtml(label, value) {
+    return '<div style="background:#3b4252;border:1px solid #4c566a;border-radius:6px;' +
+           'padding:10px 14px;min-width:120px;text-align:center;">' +
+           '<div style="font-size:1.4rem;font-weight:600;color:#eceff4;font-family:\'JetBrains Mono\',monospace;">' +
+           value + '</div>' +
+           '<div style="font-size:0.78rem;color:#d8dee9;margin-top:2px;">' + label + '</div>' +
+           '</div>';
+  }
+
+  function cardRowHtml(cardsHtml) {
+    return '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:1.4rem;">' + cardsHtml + '</div>';
+  }
+
+  function fmtNum(v, decimals) {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "number" && isNaN(v)) return "—";
+    return typeof v === "number" ? v.toFixed(decimals) : String(v);
+  }
+
+  function fmtInt(v) {
+    if (v === null || v === undefined) return "—";
+    return String(v);
+  }
+
+  // ── Render the full stats page from the stats.json payload ─────────────────
+  function renderStats(data) {
+    var container = document.getElementById("stats-container");
+    var html = "";
+
+    // Section 1: headline number cards
+    html += "<h2>Universe Overview</h2>";
+    html += cardRowHtml(
+      statCardHtml("Universe Size", fmtInt(data.universe_count)) +
+      statCardHtml("Buy Signals", fmtInt(data.buy_signal_count)) +
+      statCardHtml("Low Safety Count", fmtInt(data.low_safety_count))
+    );
+
+    // Section 2: score distribution — 5 buckets
+    html += "<h2>Score Distribution (OverallScore)</h2>";
+    var dist = data.score_distribution || {};
+    html += cardRowHtml(
+      statCardHtml("0&ndash;20", fmtInt(dist["0_20"])) +
+      statCardHtml("20&ndash;40", fmtInt(dist["20_40"])) +
+      statCardHtml("40&ndash;60", fmtInt(dist["40_60"])) +
+      statCardHtml("60&ndash;80", fmtInt(dist["60_80"])) +
+      statCardHtml("80&ndash;100", fmtInt(dist["80_100"]))
+    );
+
+    // Section 3: pillar averages
+    html += "<h2>Pillar Averages</h2>";
+    var pa = data.pillar_averages || {};
+    html += cardRowHtml(
+      statCardHtml("Value", fmtNum(pa.value, 1)) +
+      statCardHtml("Quality", fmtNum(pa.quality, 1)) +
+      statCardHtml("Growth", fmtNum(pa.growth, 1)) +
+      statCardHtml("Safety", fmtNum(pa.safety, 1))
+    );
+
+    // Section 4: sector breakdown table
+    html += "<h2>Sector Breakdown</h2>";
+    var breakdown = data.sector_breakdown || [];
+    if (breakdown.length === 0) {
+      html += "<p>No sector data available.</p>";
+    } else {
+      html += '<table class="checklist-table"><thead><tr>' +
+        "<th>Sector</th><th>Count</th><th>Avg Score</th><th>Buy Signals</th>" +
+        "</tr></thead><tbody>";
+      for (var i = 0; i < breakdown.length; i++) {
+        var s = breakdown[i];
+        html += "<tr>" +
+          "<td>" + escHtml(s.sector) + "</td>" +
+          "<td>" + fmtInt(s.count) + "</td>" +
+          "<td>" + fmtNum(s.avg_score, 1) + "</td>" +
+          "<td>" + fmtInt(s.buy_signal_count) + "</td>" +
+          "</tr>";
+      }
+      html += "</tbody></table>";
+    }
+
+    // Section 5: coverage stats table
+    html += "<h2>Coverage Stats</h2>";
+    var cov = data.coverage_stats || {};
+    html += '<table class="checklist-table"><thead><tr>' +
+      "<th>Metric</th><th>Value</th>" +
+      "</tr></thead><tbody>" +
+      "<tr><td>Avg Coverage %</td><td>" + fmtNum(cov.avg_coverage_pct, 1) + "</td></tr>" +
+      "<tr><td>Tickers with Piotroski</td><td>" + fmtInt(cov.tickers_with_piotroski) + "</td></tr>" +
+      "<tr><td>Tickers with Altman Z''</td><td>" + fmtInt(cov.tickers_with_altman) + "</td></tr>" +
+      "<tr><td>Tickers with DCF</td><td>" + fmtInt(cov.tickers_with_dcf) + "</td></tr>" +
+      "<tr><td>Tickers with FCF Yield</td><td>" + fmtInt(cov.tickers_with_fcf_yield) + "</td></tr>" +
+      "</tbody></table>";
+
+    container.innerHTML = html;
+  }
+
+  // ── Data fetch (cache-busted, matches results.json pattern) ────────────────
+  fetch("data/stats.json?v=" + Date.now())
+    .then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status + " fetching stats.json");
+      return r.json();
+    })
+    .then(function(data) {
+      updateFreshnessUI(data.generated_at);
+      buildNav("stats");
+      renderStats(data);
+    })
+    .catch(function(err) {
+      document.getElementById("freshness-badge").textContent = "Error loading data";
+      document.getElementById("stats-container").innerHTML =
+        '<p style="padding:1.2rem;color:#d8dee9;">Could not load stats data.</p>';
+      console.error("Stats load error:", err);
+    });
+  </script>
+
+</body>
+</html>

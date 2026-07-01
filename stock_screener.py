@@ -2246,8 +2246,10 @@ def run_screener(universe: pd.DataFrame, aaa_yield: float) -> pd.DataFrame:
 # MAIN
 # ═════════════════════════════════════════════
 
-OUTPUT_PATH = Path("docs/data/results.json")
-STATS_PATH  = Path("docs/data/stats.json")
+OUTPUT_PATH     = Path("docs/data/results.json")
+STATS_PATH      = Path("docs/data/stats.json")
+SNAPSHOTS_DIR   = Path("docs/data/snapshots")
+SNAPSHOTS_INDEX = SNAPSHOTS_DIR / "index.json"
 
 # [ASSUMED] — no empirical anchor; low_safety_count flags rows the Safety
 # pillar considers distressed. Replaces the old is_trap count (Phase 7 PAGE-02).
@@ -2385,6 +2387,34 @@ def write_json(df: pd.DataFrame) -> None:
     STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATS_PATH.write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")
     log.info(f"Stats written to {STATS_PATH}")
+
+
+def update_snapshot_manifest(filename: str) -> None:
+    """
+    Append `filename` to the docs/data/snapshots/index.json manifest (D-13).
+
+    Ensures SNAPSHOTS_DIR exists, loads the existing manifest (or starts a
+    fresh {"snapshots": []} one), appends `filename` if not already present,
+    sorts the list, and writes it back compact.
+
+    NOT called during normal screener runs — snapshots are monthly, driven
+    by the "first weekday of month" check in .github/workflows/screener.yml,
+    which invokes this via `python -c "import stock_screener; ..."` only when
+    that condition is met.
+    """
+    SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    if SNAPSHOTS_INDEX.exists():
+        manifest = json.loads(SNAPSHOTS_INDEX.read_text(encoding="utf-8"))
+    else:
+        manifest = {"snapshots": []}
+    if filename not in manifest["snapshots"]:
+        manifest["snapshots"].append(filename)
+    manifest["snapshots"].sort()
+    SNAPSHOTS_INDEX.write_text(
+        json.dumps(manifest, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    log.info(f"Snapshot manifest updated: {filename} ({SNAPSHOTS_INDEX})")
 
 
 def main():
