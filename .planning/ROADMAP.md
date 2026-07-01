@@ -162,7 +162,7 @@ Plans:
 
 **Note on DATA-03:** The optional 30-day fundamentals cache is **deferred out of Phase 7** per user decision (CONTEXT.md Deferred Ideas) — it adds engineering complexity and is best added once Phase 7 runtime is benchmarked. All other Phase 7 requirements are planned below.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 **Wave 1**
 
@@ -170,7 +170,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-02-PLAN.md — Scoring fold: rewrite Safety pillar (drop is_trap, Piotroski+Altman subs, D-04 absent→50) + sector applicability gate + DCF as 4th Value sub-group + new flat columns + stats.json writer (TRAP-03, SECTOR-02, PAGE-02 data half)
+- [x] 07-02-PLAN.md — Scoring fold: rewrite Safety pillar (drop is_trap, Piotroski+Altman subs, D-04 absent→50) + sector applicability gate + DCF as 4th Value sub-group + new flat columns + stats.json writer (TRAP-03, SECTOR-02, PAGE-02 data half)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -191,4 +191,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
 | 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
 | 6. Cheap Factors + Sector | 2/2 | Complete | 2026-06-28 |
-| 7. Distress Signals, DCF, Stats & Snapshots | 1/3 | In Progress|  |
+| 7. Distress Signals, DCF, Stats & Snapshots | 2/3 | In Progress|  |
