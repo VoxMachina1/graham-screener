@@ -35,8 +35,35 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data/results.json
+          git add docs/data/results.json docs/data/stats.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: update screener results"
+            git push
+          fi
+
+      - name: Check if first weekday of month
+        id: check-date
+        run: |
+          DAY=$(date +%d)
+          DOW=$(date +%u)
+          if [ "$DAY" -le 7 ] && [ "$DOW" -le 5 ]; then
+            echo "is_first_weekday=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_first_weekday=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit monthly snapshot
+        if: steps.check-date.outputs.is_first_weekday == 'true'
+        run: |
+          # Min-row guard (DATA-02) is upstream: write_json() exits non-zero
+          # when < 100 rows, which fails the "Run screener" step above and
+          # prevents this step from ever running on an incomplete dataset.
+          SNAP_DATE=$(date +%Y-%m-%d)
+          mkdir -p docs/data/snapshots
+          cp docs/data/results.json "docs/data/snapshots/${SNAP_DATE}.json"
+          python -c "import stock_screener; stock_screener.update_snapshot_manifest('${SNAP_DATE}.json')"
+          git add "docs/data/snapshots/${SNAP_DATE}.json" docs/data/snapshots/index.json docs/data/stats.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: monthly snapshot ${SNAP_DATE}"
             git push
           fi

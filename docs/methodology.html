@@ -33,6 +33,8 @@
               aria-controls="panel-graham"    class="tab-btn">Graham Signals</button>
       <button role="tab" id="tab-defensive" aria-selected="false"
               aria-controls="panel-defensive" class="tab-btn">Defensive Checklist</button>
+      <button role="tab" id="tab-distress"  aria-selected="false"
+              aria-controls="panel-distress"  class="tab-btn">Distress &amp; DCF</button>
       <button role="tab" id="tab-sources"   aria-selected="false"
               aria-controls="panel-sources"   class="tab-btn">Data Sources</button>
     </div>
@@ -286,7 +288,138 @@
       </table>
     </section>
 
-    <!-- ── Panel 4: Data Sources ── -->
+    <!-- ── Panel 4: Distress & DCF (Phase 7) ── -->
+    <section role="tabpanel" id="panel-distress" aria-labelledby="tab-distress" hidden>
+      <h2>Distress Signals &amp; Discounted Cash Flow</h2>
+      <p>
+        Phase 7 adds two distress-detection sub-scores to the Safety pillar (Piotroski F-Score,
+        Altman Z&Prime;) and a two-stage discounted cash flow model as a fourth Value sub-group.
+        These replace the earlier binary <code>is_trap</code> gate: a distressed stock now scores
+        low on Safety proportionally, rather than being hard-vetoed. All band thresholds below are
+        <strong>[ASSUMED]</strong> version-controlled config constants with no empirical anchor yet
+        &mdash; monitor the live distribution on the <a href="stats.html">Stats</a> page and expect
+        tuning iterations.
+      </p>
+
+      <h3>Piotroski F-Score</h3>
+      <p>Column: <code>Piotroski_F</code> (0&ndash;9) &mdash; the standard nine-criterion test
+         (Piotroski, 2000) comparing the current fiscal year against the prior year across
+         profitability, leverage/liquidity, and operating efficiency:</p>
+      <dl>
+        <dt>Profitability (4 points)</dt>
+        <dd>Positive net income; positive operating cash flow; ROA improved year-over-year;
+            operating cash flow exceeds net income (accruals quality)</dd>
+        <dt>Leverage, Liquidity &amp; Source of Funds (3 points)</dt>
+        <dd>Long-term debt/assets decreased; current ratio improved; no new share issuance
+            (shares outstanding did not increase)</dd>
+        <dt>Operating Efficiency (2 points)</dt>
+        <dd>Gross margin improved year-over-year; asset turnover improved year-over-year</dd>
+      </dl>
+      <p>The 0&ndash;9 raw score maps to the Safety sub-score via piecewise bands
+         (distressed &rarr; 0&ndash;20, weak &rarr; 20&ndash;40, average &rarr; 40&ndash;65,
+         strong &rarr; 65&ndash;85, very strong &rarr; 85&ndash;100). When the prior-year statements
+         are unavailable, Piotroski contributes a neutral 50.0 to the Safety pillar rather than
+         being skipped &mdash; this prevents stocks with thin data coverage from unfairly inheriting
+         Safety scores from the remaining inputs alone.</p>
+
+      <h3>Altman Z&Prime;-Score</h3>
+      <p>Column: <code>Altman_Z</code> &mdash; the Z&Prime; variant of Altman's bankruptcy-prediction
+         model, designed for non-financial, non-manufacturing companies:</p>
+      <p style="font-family:'JetBrains Mono',monospace;">
+        Z&Prime; = 6.56&middot;X1 + 3.26&middot;X2 + 6.72&middot;X3 + 1.05&middot;X4
+      </p>
+      <dl>
+        <dt>X1</dt>
+        <dd>Working Capital &divide; Total Assets</dd>
+        <dt>X2</dt>
+        <dd>Retained Earnings &divide; Total Assets</dd>
+        <dt>X3</dt>
+        <dd>EBIT &divide; Total Assets</dd>
+        <dt>X4</dt>
+        <dd>Book Value of Equity &divide; Total Liabilities</dd>
+      </dl>
+      <p>
+        Z&Prime; below 1.1 falls in the <strong>distress zone</strong> (Safety sub-score of 0.0);
+        Z&Prime; above 2.6 falls in the <strong>safe zone</strong> (Safety sub-score 70&ndash;100);
+        values in between are linearly interpolated across the grey zone. Altman Z&Prime; is
+        <strong>excluded for Financial Services</strong> companies (the model is not designed for
+        highly-leveraged balance sheets like banks and insurers) &mdash; excluded tickers contribute
+        the same neutral 50.0 as missing-data tickers, never a zero.
+      </p>
+
+      <h3>Two-Stage Discounted Cash Flow</h3>
+      <p>Columns: <code>DCF_Intrinsic_Value</code>, <code>DCF_Discount_Pct</code>,
+         <code>DCF_Implied_Growth</code>, <code>dcf_reverse_converged</code> &mdash; a forward
+         intrinsic-value estimate plus a reverse solve for the growth rate the market is currently
+         pricing in.</p>
+      <dl>
+        <dt>Stage 1 &mdash; High growth</dt>
+        <dd>The stock's realized 5-year EPS CAGR is applied for 5 years to project forward EPS.</dd>
+        <dt>Terminal value</dt>
+        <dd>Gordon Growth Model using a terminal growth rate capped at
+            <code>min(realized 5yr CAGR, 3.0%)</code> &mdash; roughly long-run nominal GDP growth,
+            so no stock is assumed to out-grow the broader economy forever.</dd>
+        <dt>Discount rate (WACC)</dt>
+        <dd>Live Moody's AAA corporate bond yield (fetched from FRED each run) plus a 5.5%
+            equity risk premium (<code>DCF_ERP</code>, config-overridable). If the terminal
+            growth rate is ever configured at or above WACC, the computation raises a loud
+            config error rather than silently producing a nonsensical (infinite or negative)
+            valuation.</dd>
+        <dt>Forward discount</dt>
+        <dd><code>DCF_Discount_Pct = (1 &minus; Price &divide; Intrinsic Value) &times; 100</code>
+            &mdash; positive means the stock trades below its DCF intrinsic value (cheap signal),
+            consistent with the Lynch/Graham discount sign convention used throughout the
+            screener.</dd>
+        <dt>Reverse DCF</dt>
+        <dd>Solves for the growth rate that would justify the current price, given the same WACC
+            and terminal-growth assumptions. When the solver cannot find a root (no valid growth
+            rate produces the observed price), <code>DCF_Implied_Growth</code> is <code>None</code>
+            and <code>dcf_reverse_converged</code> is <code>False</code> &mdash; never a silently
+            clipped or default value.</dd>
+      </dl>
+      <p>DCF is <strong>excluded for Financial Services and Real Estate (REITs)</strong> &mdash;
+         see the sector applicability matrix below.</p>
+
+      <h3>Sector Applicability Matrix</h3>
+      <p>
+        Some metrics are not meaningful for every sector. Excluded metrics are always emitted as
+        <code>None</code> (missing), <strong>never zero</strong> &mdash; a zero would imply "worst
+        possible," which misrepresents "not applicable." Average-over-present scoring then handles
+        the gap for that ticker's pillar the same way it handles any other missing input.
+      </p>
+      <table class="checklist-table">
+        <thead>
+          <tr>
+            <th>Sector</th>
+            <th>Excluded Metrics</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Financial Services</td>
+            <td>DCF, EV/EBIT, Altman Z&Prime;</td>
+            <td>FCF-based valuation and Z&Prime; are not designed for bank/insurer balance sheets</td>
+          </tr>
+          <tr>
+            <td>Real Estate (REITs)</td>
+            <td>DCF</td>
+            <td>REIT cash generation is FFO-based, not FCF-based</td>
+          </tr>
+          <tr>
+            <td>All other sectors</td>
+            <td>None</td>
+            <td>Piotroski, Altman Z&Prime;, and DCF all apply</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        A ticker with an unknown or missing sector receives <strong>no exclusion</strong> (all
+        metrics are attempted) &mdash; the matrix only excludes sectors it explicitly recognizes.
+      </p>
+    </section>
+
+    <!-- ── Panel 5: Data Sources ── -->
     <section role="tabpanel" id="panel-sources" aria-labelledby="tab-sources" hidden>
       <h2>Data Sources</h2>
       <p>
