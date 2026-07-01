@@ -29,6 +29,7 @@ from stock_screener import (
     _dcf_wacc,
     DCF_ERP,
     DCF_TERMINAL_GROWTH_CAP,
+    DCF_GROWTH_FLOOR,
 )
 
 
@@ -167,6 +168,55 @@ def test_dcf_forward_raises_when_terminal_growth_gte_wacc():
     assert raised, "expected ValueError when terminal_growth >= WACC, but no exception raised"
 
 
+def test_dcf_growth_floor_constant_is_sane():
+    """
+    DCF_GROWTH_FLOOR must be strictly between -100% (which would make
+    (1+g) hit zero) and 0% (it is a floor on decline, not on growth).
+    """
+    assert DCF_GROWTH_FLOOR > -100.0, (
+        f"DCF_GROWTH_FLOOR must be > -100.0 to keep (1+g) positive, got {DCF_GROWTH_FLOOR}"
+    )
+    assert DCF_GROWTH_FLOOR < 0.0, (
+        f"DCF_GROWTH_FLOOR must be < 0.0 (a floor on decline), got {DCF_GROWTH_FLOOR}"
+    )
+
+
+def test_dcf_forward_growth_floor_prevents_sign_flip():
+    """
+    CR-03: a severely negative reconciled growth rate (-150%) must be floored
+    to DCF_GROWTH_FLOOR before reaching _compute_dcf_forward, producing a
+    positive, finite intrinsic value -- never a sign-flipped/negative one.
+    """
+    raw_g = -150.0
+    floored_g = max(raw_g, DCF_GROWTH_FLOOR)
+
+    # The floor must actually clamp this severely negative input.
+    assert floored_g == DCF_GROWTH_FLOOR, (
+        f"expected max({raw_g}, DCF_GROWTH_FLOOR) == DCF_GROWTH_FLOOR, got {floored_g}"
+    )
+    # DCF_GROWTH_FLOOR > -100.0 keeps (1+g) strictly positive.
+    assert DCF_GROWTH_FLOOR > -100.0
+
+    intrinsic, discount_pct = _compute_dcf_forward(
+        eps=2.0, g_cagr_pct=floored_g, aaa_yield_pct=5.0, price=10.0
+    )
+    assert intrinsic is not None, "expected finite intrinsic for floored growth, got None"
+    assert intrinsic > 0, f"expected positive intrinsic for floored growth, got {intrinsic}"
+    assert discount_pct is not None and discount_pct == discount_pct, (
+        f"expected finite discount_pct, got {discount_pct}"
+    )
+
+    # Documents WHY the floor is required: the raw unfloored -150% growth
+    # would have produced a negative, nonsensical intrinsic value.
+    raw_intrinsic, _ = _compute_dcf_forward(
+        eps=2.0, g_cagr_pct=raw_g, aaa_yield_pct=5.0, price=10.0
+    )
+    assert raw_intrinsic is not None and raw_intrinsic < 0, (
+        f"expected the raw unfloored -150% growth to produce a negative intrinsic "
+        f"(demonstrating why the floor is needed), got {raw_intrinsic}"
+    )
+
+
 # ── _compute_dcf_reverse ─────────────────────────────────────────────────────
 
 def test_dcf_reverse_round_trip():
@@ -258,6 +308,8 @@ def run_all():
         test_dcf_forward_none_none_when_eps_zero,
         test_dcf_forward_none_none_when_eps_negative,
         test_dcf_forward_raises_when_terminal_growth_gte_wacc,
+        test_dcf_growth_floor_constant_is_sane,
+        test_dcf_forward_growth_floor_prevents_sign_flip,
         # _compute_dcf_reverse
         test_dcf_reverse_round_trip,
         test_dcf_reverse_converged_returns_float_and_true,
