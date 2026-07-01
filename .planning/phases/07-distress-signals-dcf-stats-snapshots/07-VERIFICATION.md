@@ -1,37 +1,18 @@
 ---
 phase: 07-distress-signals-dcf-stats-snapshots
-verified: 2026-06-30T22:50:00Z
-status: gaps_found
-score: 2/5 must-haves verified
+verified: 2026-07-01T23:25:00Z
+status: passed
+score: 5/5 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "Piotroski F-Score and Altman Z'' are computed per ticker and replace/augment the interim gate as the Safety-pillar driver"
-    status: partial
-    reason: "is_trap is structurally removed from overall_score()'s signature and Safety is now driven by Piotroski+Altman+defensive/de/cr (17-leaf coverage) as designed. However, the Piotroski F5 criterion ('leverage decreased') has an inverted fail-safe default: when long_term_debt_curr cannot be located (a known, common yfinance label-mismatch case called out elsewhere in the same file), the code defaults the numerator to 0, which makes the '<' comparison against the prior-year ratio almost always True — silently AWARDING the point instead of failing it. This is the opposite of the fail-safe direction used by the two structurally identical criteria (F6, F8) three lines away in the same function. This inflates the Piotroski F-Score (and therefore the Safety pillar) on missing data with no diagnostic signal. Confirmed by direct code inspection of stock_screener.py:1230-1237 — unfixed as of HEAD (574ee13)."
-    artifacts:
-      - path: "stock_screener.py"
-        issue: "Lines 1230-1237 (_compute_piotroski, F5 criterion): `ltd_ratio_curr = (long_term_debt_curr / avg_assets) if long_term_debt_curr is not None else 0` combined with `if ltd_ratio_curr < ltd_ratio_prev: score += 1` biases toward a false PASS on missing current-year long-term-debt data."
-    missing:
-      - "Guard long_term_debt_curr is not None in the F5 if-condition (matching F1/F2/F4's 'missing -> fail, still counted' convention) instead of defaulting the ratio to 0."
-  - truth: "Forward two-stage DCF intrinsic value + discount % appear per ticker, sector-guarded (financials excluded, cyclicals flagged), asserting terminal-growth < discount-rate, with the bounded reverse solver emitting None on non-convergence — never a silent default"
-    status: failed
-    reason: "Two independent defects verified: (1) The reconciled growth rate 'g' fed into _compute_dcf_forward has no lower bound (only `g = min(g, GROWTH_CAP)` — upper cap only). Reproduced live: _compute_dcf_forward(eps=2.0, g_cagr_pct=-150.0, aaa_yield_pct=5.0, price=10.0) returns intrinsic=-0.62 (negative, nonsensical) and discount_pct=1705% — which after winsorization scores as the strongest possible 'deep value' DCF signal for exactly the distressed-EPS population Phase 7 was built to flag as risky. (2) The 'cyclicals flagged' half of the sector guard (D-10: Energy/Materials get DCF with a visible [CYCLICAL] coverage flag) was never implemented anywhere in the codebase — grep for DCF_Cyclical_Flag/Cyclical_Flag across *.py/*.html/*.js returns zero matches, despite being explicitly specified in 07-CONTEXT.md D-10 and 07-RESEARCH.md Pitfall 7. The bounded reverse solver's None-on-non-convergence behavior IS correctly implemented and tested (test_dcf_reverse_no_root_returns_none_false passes), and the terminal<WACC assert IS correctly implemented and tested — those two sub-parts of this truth are fine."
-    artifacts:
-      - path: "stock_screener.py"
-        issue: "Lines 2024-2025 (`g = min(g, GROWTH_CAP)`) and line 2132 (DCF forward call site) — no floor on g before it reaches _compute_dcf_forward/_compute_dcf_reverse; _compute_dcf_forward (~1362-1389) has no eps/g sanity guard analogous to its eps<=0 guard."
-      - path: "stock_screener.py / docs/methodology.html / docs/top.html"
-        issue: "No DCF_Cyclical_Flag field, column, or UI indicator exists anywhere for Energy/Materials sectors, despite D-10 explicitly requiring it."
-    missing:
-      - "Clamp g to a sane floor (e.g. -99%) before DCF calls, or add an explicit guard in _compute_dcf_forward/_compute_dcf_reverse rejecting g_cagr_pct <= -100.0."
-      - "Implement the cyclical-sector coverage flag (Energy/Materials -> DCF_Cyclical_Flag=True) and surface it somewhere the user can see (row column and/or UI badge), per D-10."
-  - truth: "The Actions workflow commits periodic (monthly, first-weekday) snapshots of results.json under docs/data/snapshots/ (with the .gitignore exception and the reused min-row guard)"
-    status: failed
-    reason: "The .gitignore exceptions, snapshot-copy logic, manifest writer, and first-weekday detection are all structurally present and correct. However, the 'Commit monthly snapshot' step in .github/workflows/screener.yml (lines 61-69) invokes `python -c \"import stock_screener; ...\"` with NO env: block. stock_screener.py reads FRED_API_KEY/FINNHUB_API_KEY at module import time via `os.environ[\"...\"]` (bracket access, not .get()), which raises KeyError immediately if the variable is absent. GitHub Actions step-level env: is not inherited by later steps, so this step's shell will not have these variables set in production CI. Reproduced live in an isolated subprocess (no .env file, no env vars): `import stock_screener` raised `KeyError: 'FRED_API_KEY'` with exit code 1. This means the monthly snapshot step will crash on every first-weekday-of-month CI run; docs/data/snapshots/index.json will never be created/updated in production, and history.html will always show 'No snapshots yet.' The bug is invisible locally because .env persists for the whole local shell session (load_dotenv() masks it), which is exactly why the code review flagged it as a CI-only failure mode."
-    artifacts:
-      - path: ".github/workflows/screener.yml"
-        issue: "Lines 61-69 ('Commit monthly snapshot' step) has no env: block providing FRED_API_KEY/FINNHUB_API_KEY, so `python -c \"import stock_screener; ...\"` crashes with KeyError before update_snapshot_manifest ever runs."
-    missing:
-      - "Add an env: block to the 'Commit monthly snapshot' step providing FRED_API_KEY and FINNHUB_API_KEY from secrets, mirroring the 'Run screener' step's env: block."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 2/5
+  gaps_closed:
+    - "Piotroski F5 inverted fail-safe on missing current-year long-term-debt (CR-02)"
+    - "DCF growth rate unbounded (sign-flip/negative intrinsic) + missing D-10 cyclical flag (CR-03)"
+    - "Monthly snapshot workflow step missing env: block causing KeyError in CI (CR-01)"
+  gaps_remaining: []
+  regressions: []
 deferred:
   - truth: "DATA-03 (30-day fundamentals cache)"
     addressed_in: "Future phase (explicitly out of scope for Phase 7)"
@@ -42,9 +23,9 @@ deferred:
 
 **Phase Goal:** Piotroski F-Score and Altman Z'' upgrade the interim trap-gate into the real Safety-pillar driver; forward + reverse DCF give per-stock intrinsic value and an expectations gap; a per-metric sector applicability matrix keeps sector-invalid signals out of the score; stats.html plus committed historic snapshots make the universe observable and comparable over time.
 
-**Verified:** 2026-06-30T22:50:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-07-01T23:25:00Z
+**Status:** passed
+**Re-verification:** Yes — after 07-04 gap-closure plan (fixes CR-01/CR-02/CR-03)
 
 ## Goal Achievement
 
@@ -52,13 +33,13 @@ deferred:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Piotroski F-Score (0-9) and Altman Z'' computed per ticker, replace/augment interim gate as Safety-pillar driver | ⚠️ PARTIAL / FAILED | `is_trap` correctly removed from `overall_score()` signature (confirmed: signature ends `piotroski_f=None, altman_z=None, dcf_discount_pct=None`, no `is_trap` param). BUT Piotroski F5 criterion has a verified, reproduced-by-inspection inverted fail-safe (stock_screener.py:1230-1237) that silently inflates the F-Score — and therefore Safety — on missing current-year long-term-debt data. |
-| 2 | Forward + reverse DCF, sector-guarded (financials excluded, cyclicals flagged), terminal<discount assert, bounded solver -> None never silent default | ✗ FAILED | Terminal<WACC assert and bounded-solver-emits-None behavior both correctly implemented and unit-tested. BUT (a) growth rate `g` has no lower bound before DCF calls — reproduced live: g=-150% produces a negative intrinsic value (-0.62) and a 1705% discount_pct, which scores as a false "deep value" BUY for a collapsing-EPS company; (b) the "cyclicals flagged" requirement (D-10, `DCF_Cyclical_Flag` for Energy/Materials) was never implemented anywhere — zero matches in the codebase. |
-| 3 | Per-metric sector applicability matrix; invalid signals treated as missing, never zero | ✓ VERIFIED | `_sector_allows(fund, metric)` (stock_screener.py:310+) correctly gates dcf/altman/earnings_yield/ev_ebit by sector; Financial Services excludes altman+dcf+earnings_yield+ev_ebit, Real Estate excludes dcf only, unknown sector excludes nothing. 6 dedicated unit tests pass (`test_sector_allows_*`). All exclusions route to `None`, never `0`, confirmed at call sites (stock_screener.py:2130-2141). |
-| 4 | docs/stats.html presents universe overview; methodology.html documents new signals/scoring/sector guards | ✓ VERIFIED | stats.html (161 lines) fetches `data/stats.json` cache-busted, renders score_distribution (5 buckets), pillar_averages, sector_breakdown table, coverage_stats table — no charting library. methodology.html contains substantive new sections (Piotroski F-Score, Altman Z'', two-stage DCF forward/reverse, sector applicability matrix table) while retaining prior Lynch/Graham content. Human-verify checkpoint (07-03 Task 4) was approved by the user for visual rendering. |
-| 5 | Actions workflow commits periodic monthly (first-weekday) snapshots under docs/data/snapshots/, reusing min-row guard; DATA-03 correctly deferred | ✗ FAILED | `.gitignore` exceptions present and correct. Snapshot copy/manifest/first-weekday-detection logic all structurally correct. BUT the "Commit monthly snapshot" step (screener.yml:61-69) has no `env:` block; `stock_screener.py` reads `os.environ["FRED_API_KEY"]`/`["FINNHUB_API_KEY"]` at import time (bracket access, raises KeyError if absent). Reproduced live in an isolated subprocess with no `.env` and no env vars: `import stock_screener` → `KeyError: 'FRED_API_KEY'`, exit code 1. This step will crash every month in production CI, so snapshots will never actually land. DATA-03 deferral correctly honored (not flagged as a gap). |
+| 1 | Piotroski F-Score (0-9) and Altman Z'' computed per ticker, replace/augment interim gate as Safety-pillar driver | ✓ VERIFIED | `is_trap` remains structurally removed from `overall_score()`'s scoring signature (Safety driven by Piotroski+Altman+defensive/de/cr). **Gap 1 closed:** F5 criterion (stock_screener.py:1241-1247) now guards `long_term_debt_curr is not None` in the same if-condition as the other four LTD/CR/GM criteria, and the inline `... if long_term_debt_curr is not None else 0` default was removed entirely — `ltd_ratio_curr = long_term_debt_curr / avg_assets` is unconditional inside the guarded block, exactly mirroring F6/F8's fail-safe pattern. Confirmed by direct read of the current code (not the SUMMARY). New regression test `test_piotroski_f5_fails_safe_on_missing_ltd_curr` (tests/test_distress_phase7.py:317) builds a fixture with prior-year LTD present but current-year LTD absent and asserts the score is exactly 1 point lower than the legitimate-pass fixture; ran directly — passes (39 passed, 0 failed in the full suite). |
+| 2 | Forward + reverse DCF, sector-guarded (financials excluded, cyclicals flagged), terminal<discount assert, bounded solver -> None never silent default | ✓ VERIFIED | **Gap 2 closed, two parts:** (a) `DCF_GROWTH_FLOOR = -50.0` added to the DCF config block (stock_screener.py:313); at the DCF call site (line 2146) `g_dcf = max(g, DCF_GROWTH_FLOOR)` is computed and passed to both `_compute_dcf_forward` and `_compute_dcf_reverse` (lines 2147-2148); the shared, unfloored `g` still flows to Lynch/Graham's WORST_DISCOUNT routing unchanged. Reproduced live: `_compute_dcf_forward(eps=2.0, g_cagr_pct=max(-150.0, DCF_GROWTH_FLOOR), aaa_yield_pct=5.0, price=10.0)` now returns `intrinsic=1.65` (positive, finite) instead of the previously-reproduced `-0.62` (negative/nonsensical). (b) `CYCLICAL_SECTORS = {"Energy", "Basic Materials"}` (line 316) and `dcf_cyclical_flag = (fund.get("sector") in CYCLICAL_SECTORS) and _sector_allows(fund, "dcf")` (line 2152), emitted as `row["DCF_Cyclical_Flag"]` (line 2205) — confirmed by reading `_sector_allows`: Energy/Basic Materials are not in `DCF_EXCLUDED_SECTORS`, so the flag correctly evaluates True only when DCF was actually computed for those two sectors, and `None in CYCLICAL_SECTORS` is False so `sector=None` never sets the flag (matches 07-RESEARCH.md Pitfall 7). The terminal<WACC assert and bounded-solver-emits-None behaviors remain correctly implemented (unchanged, still tested). New regression tests `test_dcf_growth_floor_constant_is_sane` and `test_dcf_forward_growth_floor_prevents_sign_flip` (tests/test_dcf_phase7.py:171,184) pass; `_compute_dcf_forward`/`_compute_dcf_reverse` internals are untouched — all 14 pre-existing DCF tests still pass (16/16 total). |
+| 3 | Per-metric sector applicability matrix; invalid signals treated as missing, never zero | ✓ VERIFIED (regression check) | `_sector_allows(fund, metric)` (stock_screener.py:319-336) unchanged since prior verification; still correctly gates dcf/altman/earnings_yield/ev_ebit by sector, returns True (no exclusion) for unknown sector. All 6 dedicated unit tests (`test_sector_allows_*`) re-ran and pass; no regression. |
+| 4 | docs/stats.html presents universe overview; methodology.html documents new signals/scoring/sector guards | ✓ VERIFIED (regression check) | `docs/stats.html` (161 lines), `docs/methodology.html` (492 lines), `docs/history.html` (100 lines), `docs/data/stats.json` all still present on disk and unchanged by 07-04 (07-04 touched only `stock_screener.py`, two test files, and `screener.yml` per its file_modified list — confirmed via `git show a7766e4 --stat` equivalent file list). No regression. |
+| 5 | Actions workflow commits periodic monthly (first-weekday) snapshots under docs/data/snapshots/, reusing min-row guard; DATA-03 correctly deferred | ✓ VERIFIED | **Gap 3 closed:** the "Commit monthly snapshot" step in `.github/workflows/screener.yml` (lines 55-72) now has an `env:` block (lines 57-59) with `FRED_API_KEY: ${{ secrets.FRED_API_KEY }}` and `FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}`, matching the "Run screener" step's env block (lines 29-31) key-for-key, same secret names, same indentation. Confirmed structurally via `yaml.safe_load` (`OK: snapshot step env block present: ['FINNHUB_API_KEY', 'FRED_API_KEY']`). Functionally confirmed by reproducing the underlying failure mode in a clean subprocess isolated from the repo's `.env` file (cwd outside the git tree, `.env`-masking `find_dotenv()` upward search defeated): `import stock_screener` without `FRED_API_KEY`/`FINNHUB_API_KEY` in the environment raises `KeyError: 'FRED_API_KEY'` — proving the module genuinely requires these vars at import time, and that the new `env:` block (which supplies them from GitHub Actions secrets in CI) is what prevents the crash. `.gitignore` snapshot exceptions (`!docs/data/snapshots/*.json`, `!docs/data/snapshots/index.json`) still present and untouched. Min-row guard is still upstream in `write_json()` (unchanged). DATA-03 deferral correctly honored (not flagged as a gap). |
 
-**Score:** 2/5 truths verified (Truth 3 and Truth 4 fully pass; Truths 1, 2, 5 have verified, reproducible defects)
+**Score:** 5/5 truths verified (all three prior gaps closed and independently re-confirmed by direct code inspection + live execution, not SUMMARY.md claims; Truths 3 and 4 re-confirmed with no regression)
 
 ### Deferred Items
 
@@ -70,91 +51,94 @@ deferred:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `stock_screener.py::_compute_piotroski` | 0-9 F-Score pure helper | ✓ EXISTS, ✗ CORRECTNESS DEFECT | F5 inverted fail-safe (see gap 1) |
-| `stock_screener.py::_compute_altman_z` | Z'' pure helper | ✓ VERIFIED | Formula matches spec; tested |
-| `stock_screener.py::_compute_dcf_forward` | Forward DCF | ✓ EXISTS, ✗ CORRECTNESS DEFECT | No growth floor (see gap 2) |
-| `stock_screener.py::_compute_dcf_reverse` | Reverse DCF via brentq | ✓ VERIFIED | Bounded, tested, correct None-on-no-root behavior |
-| `stock_screener.py::_sector_allows` | Sector applicability gate | ✓ VERIFIED | Wired and tested |
-| `docs/data/stats.json` (via `_compute_stats`) | Universe overview JSON | ✓ VERIFIED | Schema matches SUMMARY; write_json calls it |
-| `docs/stats.html` | Universe overview page | ✓ VERIFIED | Substantive, no charting lib |
-| `docs/history.html` | Snapshot list page | ✓ VERIFIED | Fetches manifest, graceful empty state |
-| `.github/workflows/screener.yml` snapshot step | Monthly commit step | ✓ STRUCTURALLY EXISTS, ✗ RUNTIME CRASH | Missing `env:` block (see gap 3) |
-| `docs/methodology.html` | Updated methodology | ✓ VERIFIED | New sections present, prior content retained |
-| DCF cyclical flag | `[CYCLICAL]` coverage flag for Energy/Materials | ✗ MISSING | Zero occurrences anywhere in codebase |
+| `stock_screener.py::_compute_piotroski` (F5 block) | Fails safe on missing current-year LTD | ✓ VERIFIED | Lines 1239-1247; guard includes `and long_term_debt_curr is not None`, no default-to-0 |
+| `stock_screener.py::DCF_GROWTH_FLOOR` | Floor constant, applied at DCF call site | ✓ VERIFIED | Line 313 (`-50.0`); applied at line 2146 (`g_dcf = max(g, DCF_GROWTH_FLOOR)`), consumed by both forward (2147) and reverse (2148) calls |
+| `stock_screener.py::CYCLICAL_SECTORS` / `DCF_Cyclical_Flag` | D-10 cyclical coverage flag | ✓ VERIFIED | Lines 316, 2152, 2205; correct boolean logic confirmed by reading `_sector_allows` |
+| `.github/workflows/screener.yml` snapshot step | env: block with FRED_API_KEY/FINNHUB_API_KEY | ✓ VERIFIED | Lines 57-59; matches "Run screener" step key-for-key; `yaml.safe_load` assertion passes |
+| `tests/test_distress_phase7.py::test_piotroski_f5_fails_safe_on_missing_ltd_curr` | F5 regression test | ✓ VERIFIED | Present, registered, passes (39/39 suite) |
+| `tests/test_dcf_phase7.py::test_dcf_forward_growth_floor_prevents_sign_flip` / `test_dcf_growth_floor_constant_is_sane` | DCF floor regression tests | ✓ VERIFIED | Present, registered, pass (16/16 suite) |
+| `stock_screener.py::_compute_altman_z` | Z'' pure helper | ✓ VERIFIED (unchanged) | Formula matches spec; tested |
+| `stock_screener.py::_compute_dcf_forward` / `_compute_dcf_reverse` internals | Untouched by gap closure | ✓ VERIFIED | 14 pre-existing tests unchanged and passing |
+| `stock_screener.py::_sector_allows` | Sector applicability gate | ✓ VERIFIED (unchanged) | Wired and tested |
+| `docs/data/stats.json` / `docs/stats.html` / `docs/history.html` / `docs/methodology.html` | Universe overview + docs | ✓ VERIFIED (unchanged) | Present, substantive, not touched by 07-04 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `process_ticker()` | `overall_score(piotroski_f=, altman_z=, dcf_discount_pct=)` | kwarg pass | ✓ WIRED | Confirmed at stock_screener.py call site |
-| `write_json()` | `docs/data/stats.json` | `_compute_stats(df)` + write_text | ✓ WIRED | Confirmed |
-| `docs/stats.html` | `docs/data/stats.json` | cache-busted fetch | ✓ WIRED | Confirmed |
-| `docs/history.html` | `docs/data/snapshots/index.json` | manifest fetch | ✓ WIRED | Confirmed |
-| `screener.yml` "Commit monthly snapshot" step | `stock_screener.update_snapshot_manifest()` | `python -c "import stock_screener; ..."` | ✗ NOT WIRED (crashes) | No env: block — KeyError on import, reproduced live |
-| `process_ticker()` growth `g` | `_compute_dcf_forward(eps, g, ...)` | direct pass, no floor | ✗ PARTIAL (unsafe) | Reproduced sign-flip/negative-intrinsic defect |
+| `process_ticker()` growth `g` | `_compute_dcf_forward` / `_compute_dcf_reverse` | `g_dcf = max(g, DCF_GROWTH_FLOOR)` | ✓ WIRED | Confirmed at stock_screener.py:2146-2148; live-reproduced sign-flip is prevented |
+| `process_ticker()` sector + `_sector_allows` | `row["DCF_Cyclical_Flag"]` | boolean AND of sector membership + DCF-allowed | ✓ WIRED | Confirmed at stock_screener.py:2152, 2205 |
+| `screener.yml` "Commit monthly snapshot" step | `stock_screener` module import | step-level `env:` block | ✓ WIRED | Confirmed via `yaml.safe_load`; underlying KeyError-on-missing-vars behavior independently reproduced in an isolated subprocess |
+| `process_ticker()` | `overall_score(piotroski_f=, altman_z=, dcf_discount_pct=)` | kwarg pass | ✓ WIRED (unchanged) | Confirmed at stock_screener.py:2181-2183 |
+| `docs/stats.html` / `docs/history.html` | `docs/data/stats.json` / `docs/data/snapshots/index.json` | cache-busted fetch | ✓ WIRED (unchanged) | Not touched by 07-04 |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| `import stock_screener` fails without env vars (as in the unguarded CI step) | Isolated subprocess, no `.env`, no `FRED_API_KEY`/`FINNHUB_API_KEY` | `KeyError: 'FRED_API_KEY'`, exit 1 | ✓ CONFIRMS GAP 3 |
-| Severely negative growth produces nonsensical DCF intrinsic value | `_compute_dcf_forward(eps=2.0, g_cagr_pct=-150.0, aaa_yield_pct=5.0, price=10.0)` | `intrinsic=-0.62, discount_pct=1705%` | ✓ CONFIRMS GAP 2 |
-| `tests/test_distress_phase7.py` full suite | `python tests/test_distress_phase7.py` | 38 passed, 0 failed | ✓ PASS (does not cover the undocumented edge cases above) |
-| `tests/test_dcf_phase7.py` full suite | `python tests/test_dcf_phase7.py` | 14 passed, 0 failed | ✓ PASS (does not cover the growth-floor edge case) |
+| Floored growth produces a positive, finite DCF intrinsic (was negative pre-fix) | `_compute_dcf_forward(eps=2.0, g_cagr_pct=max(-150.0, DCF_GROWTH_FLOOR), aaa_yield_pct=5.0, price=10.0)` | `intrinsic=1.65, discount_pct=-505.0` (positive intrinsic, no sign flip) | ✓ PASS — confirms Gap 2 closed |
+| `import stock_screener` fails without env vars, isolated from repo `.env` | Subprocess with `cwd` outside git tree, `FRED_API_KEY`/`FINNHUB_API_KEY` stripped, `PYTHONPATH` pointing at worktree | `KeyError: 'FRED_API_KEY'`, exit 1 | ✓ PASS — confirms the module genuinely needs the env block (proves why Gap 3's fix matters) |
+| `.github/workflows/screener.yml` "Commit monthly snapshot" step has required env keys | `yaml.safe_load` + key assertion | `OK: snapshot step env block present: ['FINNHUB_API_KEY', 'FRED_API_KEY']` | ✓ PASS — confirms Gap 3 closed |
+| `tests/test_distress_phase7.py` full suite | `python tests/test_distress_phase7.py` | 39 passed, 0 failed | ✓ PASS |
+| `tests/test_dcf_phase7.py` full suite | `python tests/test_dcf_phase7.py` | 16 passed, 0 failed | ✓ PASS |
+| `tests/test_scoring.py` | `python tests/test_scoring.py` | 33 passed, 0 failed | ✓ PASS (no regression) |
+| `tests/test_scoring_phase6.py` | `python tests/test_scoring_phase6.py` | 11 passed, 0 failed | ✓ PASS (no regression) |
+| `tests/test_factors_phase6.py` | `python tests/test_factors_phase6.py` | 33 passed, 0 failed | ✓ PASS (no regression) |
+| `tests/test_growth_trap_fixes.py` | `python tests/test_growth_trap_fixes.py` | 12 passed, 0 failed | ✓ PASS (no regression) |
+
+Total across all 6 suites: 144 passed, 0 failed — matches 07-04-SUMMARY.md's claim, independently re-run (not trusted from SUMMARY alone).
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
-| SIGNAL-08 | 07-01, 07-02 | Piotroski F-Score (0-9) | ⚠️ BLOCKED (defect) | F5 inverted fail-safe inflates score on missing data |
-| SIGNAL-09 | 07-01, 07-02 | Altman Z'' with distress zones | ✓ SATISFIED | No defects found |
-| TRAP-03 | 07-02, 07-03 | Piotroski/Altman replace interim gate as Safety driver | ⚠️ BLOCKED (defect) | Structurally correct, but SIGNAL-08 defect flows into Safety |
-| DCF-01 | 07-01, 07-02 | Forward two-stage DCF intrinsic value + discount % | ✗ BLOCKED | Unbounded growth rate produces nonsensical values for distressed stocks |
-| DCF-02 | 07-01, 07-02 | Reverse DCF implied-growth gap | ✓ SATISFIED | Bounded solver correct and tested; reverse solve does not consume the unbounded g directly (dead param per review WR-02) |
-| DCF-03 | 07-01, 07-02 | Sector-guarded, terminal<discount assert, bounded solver -> None | ✗ BLOCKED | Cyclical flag never implemented; assert + bounded-solver sub-parts are correct |
-| SECTOR-02 | 07-02 | Per-metric sector applicability matrix | ✓ SATISFIED | `_sector_allows` verified and tested. Note: REQUIREMENTS.md checkbox is stale (`[ ]`/"Pending") despite the feature being implemented — documentation staleness, not a functional gap. |
-| PAGE-02 | 07-02, 07-03 | docs/stats.html universe overview | ✓ SATISFIED | Verified substantive |
-| DATA-01 | 07-03 | Periodic snapshots under docs/data/snapshots/ | ✗ BLOCKED | Workflow step crashes before ever committing a snapshot in CI |
-| DATA-02 | 07-03 | Snapshot step reuses min-row guard; vintage caveat documented | ✗ BLOCKED | Moot — the step never runs successfully due to DATA-01's blocker; vintage caveat text itself is present in history.html |
+| SIGNAL-08 | 07-01, 07-02, 07-04 | Piotroski F-Score (0-9) | ✓ SATISFIED | F5 fail-safe defect closed; no other defects found |
+| SIGNAL-09 | 07-01, 07-02 | Altman Z'' with distress zones | ✓ SATISFIED | Unchanged, no defects |
+| TRAP-03 | 07-02, 07-03, 07-04 | Piotroski/Altman replace interim gate as Safety driver | ✓ SATISFIED | F5 defect closed; Safety pillar no longer inflated on missing data |
+| DCF-01 | 07-01, 07-02, 07-04 | Forward two-stage DCF intrinsic value + discount % | ✓ SATISFIED | Growth floor closes the sign-flip defect; live-reproduced fix |
+| DCF-02 | 07-01, 07-02 | Reverse DCF implied-growth gap | ✓ SATISFIED | Bounded solver correct and tested (unchanged) |
+| DCF-03 | 07-01, 07-02, 07-04 | Sector-guarded, terminal<discount assert, bounded solver -> None | ✓ SATISFIED | Cyclical flag (D-10) implemented and verified; assert + bounded-solver sub-parts unchanged and correct |
+| SECTOR-02 | 07-02 | Per-metric sector applicability matrix | ✓ SATISFIED | `_sector_allows` verified and tested (unchanged). Note: REQUIREMENTS.md checkbox is still stale (`[ ]`/"Pending") despite the feature being implemented and marked Complete in the requirement-map table below it — pre-existing documentation staleness, not a functional gap, not introduced by 07-04. |
+| PAGE-02 | 07-02, 07-03 | docs/stats.html universe overview | ✓ SATISFIED | Verified substantive (unchanged) |
+| DATA-01 | 07-03, 07-04 | Periodic snapshots under docs/data/snapshots/ | ✓ SATISFIED | Workflow step no longer crashes before committing; env block fix verified structurally + functionally |
+| DATA-02 | 07-03, 07-04 | Snapshot step reuses min-row guard; vintage caveat documented | ✓ SATISFIED | Min-row guard logic unchanged and upstream; step now actually reaches it in CI |
 | DATA-03 | (none — explicitly deferred) | 30-day fundamentals cache | — DEFERRED | Correctly out of scope per 07-CONTEXT.md; not a gap |
-| METH-01 | 07-03 | methodology.html documents new signals/scoring/guards | ✓ SATISFIED | Verified substantive, prior content retained |
+| METH-01 | 07-03 | methodology.html documents new signals/scoring/guards | ✓ SATISFIED | Verified substantive (unchanged) |
 
-**Orphaned requirements:** None. All 11 in-scope requirement IDs from the phase requirement list (excluding the explicitly-deferred DATA-03) are claimed by at least one plan's frontmatter `requirements:` field.
+**Orphaned requirements:** None. All 11 in-scope requirement IDs (excluding the explicitly-deferred DATA-03) are claimed by at least one plan's frontmatter `requirements:` field, including 07-04's `[SIGNAL-08, TRAP-03, DCF-01, DCF-03, DATA-01, DATA-02]`.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `.github/workflows/screener.yml` | 61-69 | Missing `env:` block on a step that imports a module requiring env vars at import time | 🛑 Blocker | Monthly snapshot step crashes every run in CI (Gap 3) |
-| `stock_screener.py` | 1230-1237 | Inverted fail-safe default (missing-data biases toward PASS instead of FAIL) | 🛑 Blocker | Silently inflates Piotroski F-Score / Safety pillar (Gap 1) |
-| `stock_screener.py` | 2024-2025, 1362-1389, 2132-2137 | No lower bound / guard on growth rate before feeding a formula with `(1+g)^n` | 🛑 Blocker | Sign-flip / negative intrinsic values scored as false "deep value" BUY signals (Gap 2) |
-| `stock_screener.py` | 2132-2137 | Unguarded call to a function documented to `raise ValueError` | ⚠️ Warning | An unusual AAA-yield reading or a future config edit could abort the entire multi-hundred-ticker batch run (review WR-01, not independently reproduced here but code-confirmed) |
-| `stock_screener.py` | 1392-1442 | `g_stage1_pct` parameter accepted but never used in `_compute_dcf_reverse` | ⚠️ Warning | Misleading signature; no functional impact (review WR-02, confirmed by reading the function body) |
-| `stock_screener.py` | 449, 2104-2109, 2155 | `coverage_fraction` param threaded through but unused inside `overall_score()` after the Safety rewrite | ℹ️ Info | Orphaned plumbing, no functional impact (review WR-03) |
-| `stock_screener.py` | 1124-1271 | Raw Piotroski score not rescaled when `criteria_counted < 9`; F1 silently skipped (not failed) when `net_income_curr` is entirely absent | ⚠️ Warning | Thin-history tickers may be penalized vs. the documented contract (review WR-04) |
-| `.gitignore` | 7-8 | Redundant negation pattern for `docs/data/snapshots/index.json` | ℹ️ Info | Cosmetic only |
+| `stock_screener.py` | 2154-2157, 2210-2211 (unchanged) | `coverage_fraction` param threaded through but unused inside `overall_score()` after the Safety rewrite | ℹ️ Info (pre-existing, not introduced by 07-04) | Orphaned plumbing, no functional impact (review WR-03, carried forward) |
+| `stock_screener.py` | 1124-1271 (unchanged) | Raw Piotroski score not rescaled when `criteria_counted < 9`; F1 silently skipped (not failed) when `net_income_curr` is entirely absent | ⚠️ Warning (pre-existing, not introduced by 07-04, not one of the 3 closed gaps) | Thin-history tickers may be penalized vs. the documented contract (review WR-04, carried forward — out of scope for this gap-closure plan) |
+| `stock_screener.py` | ~2160-2165 (unchanged) | Unguarded call to a function documented to `raise ValueError` on terminal-growth >= WACC | ⚠️ Warning (pre-existing, carried forward) | An unusual AAA-yield reading could abort the batch run (review WR-01, not independently reproduced, code-confirmed only) |
+| `.gitignore` | 7-8 | Redundant negation pattern for `docs/data/snapshots/index.json` | ℹ️ Info (pre-existing, explicitly out of scope for 07-04 per its Task 3 action text) | Cosmetic only |
 
-Debt-marker scan (`TBD`/`FIXME`/`XXX`) on files modified this phase: none found.
+Debt-marker scan (`TBD`/`FIXME`/`XXX`) on files modified in 07-04 (`stock_screener.py`, `tests/test_distress_phase7.py`, `tests/test_dcf_phase7.py`, `.github/workflows/screener.yml`): none found.
+
+None of the carried-forward Warning/Info items are among the 3 gaps this re-verification cycle was scoped to confirm, and none block any of the 5 roadmap success criteria — they were already present (and already non-blocking) at the time of the prior `gaps_found` verification, and the 07-04 gap-closure plan explicitly and correctly declined to touch them ("does NOT replan or re-touch any correctly-implemented Phase 7 work").
 
 ### Human Verification Required
 
-None additional. The one human-verify checkpoint required by this phase's plans (07-03 Task 4, frontend rendering) was already completed and approved during execution — re-verification here confirmed the underlying artifacts (stats.html, history.html, top.html, methodology.html) are still substantively present and correctly wired. No new items require human judgment; all outstanding gaps are objectively reproducible via code inspection and live execution.
+None. All three previously-identified gaps were closed with objectively reproducible evidence (direct code inspection of the guard conditions, live execution of the floored-growth DCF call, isolated-subprocess reproduction of the pre-fix KeyError, and a structural YAML assertion). No new items require human judgment. The one human-check called out in 07-04-PLAN.md Task 3 (visually diffing the two `env:` blocks) was independently satisfied by direct reading of both step definitions — key-for-key match confirmed.
 
 ### Gaps Summary
 
-Three of the five roadmap success criteria have verified, reproducible defects that the 07-REVIEW.md code review (committed 574ee13) correctly identified as Critical/blocker-severity, and none of them have been fixed since that review:
+All three gaps from the prior verification pass are closed and independently re-confirmed against the actual codebase (not SUMMARY.md claims):
 
-1. **Piotroski F5 inverted fail-safe** (stock_screener.py:1230-1237) silently inflates the F-Score — and therefore the Safety pillar — whenever current-year long-term-debt data can't be located, which directly undermines Success Criterion 1's claim that Piotroski is a reliable "Safety-pillar driver."
+1. **Piotroski F5 inverted fail-safe (CR-02) — CLOSED.** stock_screener.py:1241-1247 now guards `long_term_debt_curr is not None` in the F5 if-condition, removing the inline default-to-0, exactly mirroring F6/F8. Verified by direct read and a passing regression test that isolates the missing-current-year-LTD case.
 
-2. **DCF growth rate has no lower bound** (stock_screener.py:2024-2025, 1362-1389, 2132-2137). Reproduced live: a -150% growth input produces a negative, meaningless intrinsic value that scores as the single strongest "deep value" BUY signal — the exact opposite of Phase 7's stated purpose of flagging distressed stocks as risky. Additionally, the "cyclicals flagged" half of Success Criterion 2's sector guard (D-10's `[CYCLICAL]` coverage flag for Energy/Materials) was never implemented anywhere in the codebase.
+2. **DCF growth rate unbounded + missing D-10 cyclical flag (CR-03) — CLOSED.** `DCF_GROWTH_FLOOR = -50.0` is applied at the DCF call site (`g_dcf = max(g, DCF_GROWTH_FLOOR)`), confirmed to turn a previously-reproduced negative intrinsic (-0.62) into a positive one (1.65) for the same -150% growth input. `CYCLICAL_SECTORS = {"Energy", "Basic Materials"}` and `DCF_Cyclical_Flag` are implemented with correct boolean logic (never True for `sector=None`, only True when DCF was actually computed for a cyclical sector).
 
-3. **Monthly snapshot workflow step crashes on every run** (.github/workflows/screener.yml:61-69) because it lacks the `env:` block providing FRED_API_KEY/FINNHUB_API_KEY that `stock_screener.py`'s module-level `os.environ[...]` access requires. Reproduced live: importing the module without these env vars set raises `KeyError` and exits non-zero. This means Success Criterion 5 (committed periodic snapshots) is not actually achievable as shipped — the workflow YAML has the right shape, but will never successfully commit a snapshot in production CI.
+3. **Monthly snapshot workflow step missing env: block (CR-01) — CLOSED.** The "Commit monthly snapshot" step now carries the same `FRED_API_KEY`/`FINNHUB_API_KEY` env block as the working "Run screener" step. The underlying failure mode (module-level `os.environ[...]` bracket access raising `KeyError` without these vars) was independently reproduced in a subprocess isolated from the repo's local `.env` masking, confirming the fix addresses a real, not hypothetical, CI crash.
 
-Success Criteria 3 (sector applicability matrix) and 4 (stats.html + methodology.html) are fully and correctly implemented with no defects found.
+All 5 roadmap success criteria are now verified. All 11 in-scope Phase 7 requirement IDs are satisfied (DATA-03 correctly remains deferred, not a gap). No regressions across the full 144-test, 6-suite Phase 5/6/7 regression run (independently re-executed here, not taken on SUMMARY.md's word). A small set of pre-existing, non-blocking Warning/Info items (WR-01, WR-03, WR-04, IN-02) remain from the original code review — none were in scope for this gap-closure cycle and none block phase completion.
 
-These three gaps directly mirror 07-REVIEW.md's CR-01/CR-02/CR-03 findings — the review was accurate and none of its Critical findings have been addressed since it was written. Recommend routing back through `/gsd-plan-phase 07 --gaps` for a closure plan targeting these three specific fixes (all three are small, localized, well-understood changes per the review's suggested fixes) before considering Phase 7 complete.
+Phase 7 goal is achieved. Ready to proceed.
 
 ---
 
-*Verified: 2026-06-30T22:50:00Z*
+*Verified: 2026-07-01T23:25:00Z*
 *Verifier: Claude (gsd-verifier)*

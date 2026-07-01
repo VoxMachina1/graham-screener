@@ -191,4 +191,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
 | 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
 | 6. Cheap Factors + Sector | 2/2 | Complete | 2026-06-28 |
-| 7. Distress Signals, DCF, Stats & Snapshots | 4/4 | Complete   | 2026-07-01 |
+| 7. Distress Signals, DCF, Stats & Snapshots | 4/4 | Complete    | 2026-07-01 |

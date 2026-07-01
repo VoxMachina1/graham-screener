@@ -102,7 +102,7 @@
 ### Sector Awareness
 
 - [ ] **SECTOR-01**: GICS sector is fetched per ticker and threaded through the pipeline as a row field
-- [ ] **SECTOR-02**: A per-metric sector applicability matrix governs which signals are valid per sector; invalid signals are treated as missing, never zero
+- [x] **SECTOR-02**: A per-metric sector applicability matrix governs which signals are valid per sector; invalid signals are treated as missing, never zero
 
 ### New Frontend Pages
 
@@ -115,7 +115,7 @@
 
 - [x] **DATA-01**: Periodic (weekly/monthly) snapshots of `results.json` are committed under `docs/data/snapshots/`, with the required `!docs/data/snapshots/*.json` `.gitignore` exception
 - [x] **DATA-02**: The snapshot step reuses the min-row guard so no empty/partial snapshot is committed; a data-vintage caveat is documented
-- [ ] **DATA-03**: (Optional) A 30-day fundamentals cache bounds runtime/rate-limit for the heavy Phase-C statement fetches
+- [x] **DATA-03**: (Optional) A 30-day fundamentals cache bounds runtime/rate-limit for the heavy Phase-C statement fetches
 
 ### Methodology Documentation
 
@@ -215,9 +215,9 @@
 | DCF-01 | Phase 7 | Complete | Forward two-stage DCF intrinsic value + discount % |
 | DCF-02 | Phase 7 | Complete | Reverse DCF implied-vs-actual-growth gap |
 | DCF-03 | Phase 7 | Complete | DCF sector-guarded, terminal-g < discount-rate assert, bounded solver → None |
-| SECTOR-02 | Phase 7 | Pending | Per-metric sector applicability matrix; invalid = missing, never zero |
+| SECTOR-02 | Phase 7 | Complete | Per-metric sector applicability matrix; invalid = missing, never zero |
 | PAGE-02 | Phase 7 | Complete | docs/stats.html universe overview |
 | DATA-01 | Phase 7 | Complete | Periodic snapshots under docs/data/snapshots/ + .gitignore exception |
 | DATA-02 | Phase 7 | Complete | Snapshot reuses min-row guard; data-vintage caveat documented |
-| DATA-03 | Phase 7 | Pending | (Optional) 30-day fundamentals cache bounds runtime/rate-limit |
+| DATA-03 | Phase 7 | Complete | (Optional) 30-day fundamentals cache bounds runtime/rate-limit |
 | METH-01 | Phase 7 | Complete | methodology.html documents new signals, scoring, thresholds, guards |
