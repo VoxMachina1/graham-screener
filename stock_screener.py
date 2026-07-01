@@ -306,6 +306,27 @@ DCF_TERMINAL_GROWTH_CAP = 3.0   # [ASSUMED] cap terminal growth at nominal GDP %
 DCF_EXCLUDED_SECTORS    = {"Financial Services", "Real Estate"}
 ALTMAN_EXCLUDED_SECTORS = {"Financial Services"}
 
+
+def _sector_allows(fund: dict, metric: str) -> bool:
+    """
+    Sector applicability gate (SECTOR-02 / D-10 / D-11).
+
+    Returns False when the ticker's sector excludes `metric`, so the caller
+    substitutes None (never zero) for that metric. `metric` is one of
+    "dcf", "altman", "earnings_yield", "ev_ebit". sector=None/"" means
+    "sector unknown, no exclusion applied" — intentional (RESEARCH.md Pitfall 7).
+    internal — for tests only.
+    """
+    sector = fund.get("sector") or ""
+    if metric == "dcf" and sector in DCF_EXCLUDED_SECTORS:
+        return False
+    if metric == "altman" and sector in ALTMAN_EXCLUDED_SECTORS:
+        return False
+    if metric in ("earnings_yield", "ev_ebit") and sector == "Financial Services":
+        return False
+    return True
+
+
 # ── Value sub-group 4: DCF discount ──────────────────────────────────────────
 # DCF discount % = (1 - price/intrinsic) * 100; positive = cheap.
 # Negative discount (overpriced) → D-01 worst-score path before winsorize.
@@ -1663,6 +1684,10 @@ def get_combined_data(ticker: str) -> dict:
         "roic":                  roic,
         "shareholder_yield":     shareholder_yield,
         "shareholder_yield_partial": sh_partial,
+        # Phase 7 additions — raw statement DataFrames for Piotroski/Altman (D-05)
+        "income_stmt_df":        yf_data["income_stmt_df"],
+        "balance_sheet_df":      yf_data["balance_sheet_df"],
+        "cashflow_df":           yf_data["cashflow_df"],
     }
 
 
@@ -2083,6 +2108,38 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         fcf_per_share = fund["fcf_per_share"],
     )
 
+    # ── Distress signals + DCF (TRAP-03/SECTOR-02/SIGNAL-08/09/DCF-01..03) ───
+    # Piotroski F-Score — no sector exclusion. Split the raw multi-year
+    # statement (columns[0]=newest) into (curr, prev) per _compute_piotroski's
+    # convention: prev is the same statement with the newest column dropped,
+    # so prev.columns[0] becomes the prior year.
+    def _prev_frame(df):
+        if df is None or df.empty or df.shape[1] < 2:
+            return None
+        return df.iloc[:, 1:]
+
+    inc_df = fund.get("income_stmt_df")
+    bs_df  = fund.get("balance_sheet_df")
+    cf_df  = fund.get("cashflow_df")
+    piotroski_f = _compute_piotroski(
+        inc_df, _prev_frame(inc_df),
+        bs_df,  _prev_frame(bs_df),
+        cf_df,  _prev_frame(cf_df),
+    )
+
+    altman_z = _compute_altman_z(bs_df, inc_df) if _sector_allows(fund, "altman") else None
+
+    if _sector_allows(fund, "dcf"):
+        dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g, aaa_yield, price)
+        dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g)
+    else:
+        dcf_intrinsic, dcf_discount_pct = None, None
+        dcf_implied_growth, dcf_reverse_converged = None, False
+
+    # D-11: Financial Services excluded from EV/EBIT + earnings yield (None, never zero)
+    earnings_yield = fund.get("earnings_yield") if _sector_allows(fund, "earnings_yield") else None
+    ev_ebit        = fund.get("ev_ebit")        if _sector_allows(fund, "ev_ebit")        else None
+
     # ── Overall score (SCORE-01..08) ─────────────────────────────────
     # Pass the audited discount values from lm/gm (already sentinel-routed
     # to WORST_DISCOUNT for negative-input tickers via the D-01 intercepts
@@ -2098,7 +2155,7 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         coverage_fraction   = cov_fraction,
         aaa_yield           = aaa_yield,
         fcf_yield           = fund.get("fcf_yield"),
-        earnings_yield      = fund.get("earnings_yield"),
+        earnings_yield      = earnings_yield,
         shareholder_yield   = fund.get("shareholder_yield"),
         roic                = fund.get("roic"),
         dist_52w_low        = fund.get("dist_52w_low"),
@@ -2106,6 +2163,9 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         dist_5y_low         = fund.get("dist_5y_low"),
         weeks_since_52w_low = fund.get("weeks_since_52w_low"),
         weeks_since_5y_low  = fund.get("weeks_since_5y_low"),
+        piotroski_f         = piotroski_f,
+        altman_z            = altman_z,
+        dcf_discount_pct    = dcf_discount_pct,
     )
 
     # Merge flat score columns (additive — existing keys untouched, D-02c)
@@ -2119,6 +2179,17 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["score_safety"]          = scores["safety"]
     row["is_trap"]               = is_trap
     row["coverage_pct"]          = scores["coverage_pct"]
+
+    # Phase 7 additive columns — distress signals + DCF (diagnostic + scoring)
+    row["Piotroski_F"]           = piotroski_f  # int | None (no rounding)
+    row["Altman_Z"]               = round(float(altman_z), 2) if altman_z is not None else None
+    row["DCF_Intrinsic_Value"]    = round(float(dcf_intrinsic), 2) if dcf_intrinsic is not None else None
+    row["DCF_Discount_Pct"]       = round(float(dcf_discount_pct), 2) if dcf_discount_pct is not None else None
+    row["DCF_Implied_Growth"]     = round(float(dcf_implied_growth), 2) if dcf_implied_growth is not None else None
+    row["dcf_reverse_converged"]  = dcf_reverse_converged
+    row["score_piotroski_sub"]    = scores["piotroski"]
+    row["score_altman_sub"]       = scores["altman"]
+    row["score_dcf_discount_sub"] = scores["dcf_discount"]
 
     # ── Phase 6 additive columns — sector + price signals + factors ──
     # Sector (SECTOR-01, D-02)
@@ -2137,8 +2208,8 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
 
     # Fundamental factors (SIGNAL-04/05/06/07, D-01)
     row["FCF_Yield_Pct"]          = _r2(fund["fcf_yield"])
-    row["EV_EBIT"]                = _r2(fund["ev_ebit"])
-    row["Earnings_Yield_Pct"]     = _r2(fund["earnings_yield"])
+    row["EV_EBIT"]                = _r2(ev_ebit)
+    row["Earnings_Yield_Pct"]     = _r2(earnings_yield)
     row["ROIC_Pct"]               = _r2(fund["roic"])
     row["Shareholder_Yield_Pct"]  = _r2(fund["shareholder_yield"])
     row["shareholder_yield_partial"] = fund["shareholder_yield_partial"]
@@ -2176,6 +2247,97 @@ def run_screener(universe: pd.DataFrame, aaa_yield: float) -> pd.DataFrame:
 # ═════════════════════════════════════════════
 
 OUTPUT_PATH = Path("docs/data/results.json")
+STATS_PATH  = Path("docs/data/stats.json")
+
+# [ASSUMED] — no empirical anchor; low_safety_count flags rows the Safety
+# pillar considers distressed. Replaces the old is_trap count (Phase 7 PAGE-02).
+LOW_SAFETY_THRESHOLD = 30.0
+
+
+def _compute_stats(df: pd.DataFrame) -> dict:
+    """
+    Compute universe-level aggregate stats for stats.html (PAGE-02 / D-15).
+    Pure DataFrame transform — no I/O. Columns not present in `df` (e.g. in
+    unit-test fixtures that only populate a subset of fields) are treated as
+    entirely absent rather than raising.
+    internal — for tests only.
+    """
+    universe_count = len(df)
+
+    show_col = df["Show"] if "Show" in df.columns else None
+    buy_signal_count = int(show_col.fillna(False).astype(bool).sum()) if show_col is not None else 0
+
+    safety_col = df["score_safety"] if "score_safety" in df.columns else None
+    low_safety_count = int((safety_col.dropna() < LOW_SAFETY_THRESHOLD).sum()) if safety_col is not None else 0
+
+    # score_distribution — 5 buckets over OverallScore
+    buckets = {"0_20": 0, "20_40": 0, "40_60": 0, "60_80": 0, "80_100": 0}
+    overall_col = df["OverallScore"] if "OverallScore" in df.columns else None
+    if overall_col is not None:
+        for v in overall_col.dropna():
+            if v < 20:
+                buckets["0_20"] += 1
+            elif v < 40:
+                buckets["20_40"] += 1
+            elif v < 60:
+                buckets["40_60"] += 1
+            elif v < 80:
+                buckets["60_80"] += 1
+            else:
+                buckets["80_100"] += 1
+
+    # pillar_averages — mean of each pillar sub-score over non-null rows
+    pillar_averages = {}
+    for pillar, col_name in (
+        ("value", "score_value"), ("quality", "score_quality"),
+        ("growth", "score_growth"), ("safety", "score_safety"),
+    ):
+        col = df[col_name] if col_name in df.columns else None
+        vals = col.dropna() if col is not None else None
+        pillar_averages[pillar] = round(float(vals.mean()), 2) if vals is not None and len(vals) > 0 else None
+
+    # sector_breakdown — group by Sector (None -> "Unknown"), sorted by count desc
+    breakdown = []
+    if "Sector" in df.columns:
+        tmp = df.copy()
+        tmp["_sector"] = tmp["Sector"].fillna("Unknown").replace("", "Unknown")
+        for sector_name, group in tmp.groupby("_sector"):
+            overall_vals = group["OverallScore"].dropna() if "OverallScore" in group.columns else None
+            avg_score = round(float(overall_vals.mean()), 2) if overall_vals is not None and len(overall_vals) > 0 else None
+            buy_count = int(group["Show"].fillna(False).astype(bool).sum()) if "Show" in group.columns else 0
+            breakdown.append({
+                "sector":           sector_name,
+                "count":            int(len(group)),
+                "avg_score":        avg_score,
+                "buy_signal_count": buy_count,
+            })
+        breakdown.sort(key=lambda b: b["count"], reverse=True)
+
+    # coverage_stats
+    cov_col = df["coverage_pct"] if "coverage_pct" in df.columns else None
+    cov_vals = cov_col.dropna() if cov_col is not None else None
+    coverage_stats = {
+        "avg_coverage_pct": round(float(cov_vals.mean()), 2) if cov_vals is not None and len(cov_vals) > 0 else None,
+    }
+    for key, col_name in (
+        ("tickers_with_piotroski", "Piotroski_F"),
+        ("tickers_with_altman",    "Altman_Z"),
+        ("tickers_with_dcf",       "DCF_Intrinsic_Value"),
+        ("tickers_with_fcf_yield", "FCF_Yield_Pct"),
+    ):
+        col = df[col_name] if col_name in df.columns else None
+        coverage_stats[key] = int(col.notna().sum()) if col is not None else 0
+
+    return {
+        "generated_at":       datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "universe_count":     universe_count,
+        "buy_signal_count":   buy_signal_count,
+        "low_safety_count":   low_safety_count,
+        "score_distribution": buckets,
+        "pillar_averages":    pillar_averages,
+        "sector_breakdown":   breakdown,
+        "coverage_stats":     coverage_stats,
+    }
 
 
 def write_json(df: pd.DataFrame) -> None:
@@ -2201,6 +2363,10 @@ def write_json(df: pd.DataFrame) -> None:
             "safety":         row.get("score_safety"),
             "coverage_pct":   row.get("coverage_pct"),
             "trap":           row.get("is_trap", False),
+            # Phase 7 additions
+            "piotroski":      row.get("score_piotroski_sub"),
+            "altman":         row.get("score_altman_sub"),
+            "dcf_discount":   row.get("score_dcf_discount_sub"),
         }
     payload = {
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -2211,6 +2377,14 @@ def write_json(df: pd.DataFrame) -> None:
         encoding="utf-8",
     )
     log.info(f"Results written to {OUTPUT_PATH} ({len(rows)} rows)")
+
+    # Phase 7 (PAGE-02 / D-15) — universe-level stats for stats.html.
+    # No separate row-count guard needed: this code path is unreachable when
+    # len(df) < 100 (the guard above already exits).
+    stats = _compute_stats(df)
+    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATS_PATH.write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")
+    log.info(f"Stats written to {STATS_PATH}")
 
 
 def main():
