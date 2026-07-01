@@ -31,6 +31,10 @@ from stock_screener import (
     _compute_piotroski,
     _compute_altman_z,
     overall_score,
+    _compute_stats,
+    _sector_allows,
+    DCF_EXCLUDED_SECTORS,
+    ALTMAN_EXCLUDED_SECTORS,
 )
 
 
@@ -555,6 +559,151 @@ def test_return_dict_has_new_keys():
         assert key in scores, f"Missing key '{key}' in overall_score return dict"
 
 
+# ── _compute_stats tests ─────────────────────────────────────────────────────
+
+def _make_stats_df(rows):
+    """Build a small DataFrame that _compute_stats can operate on."""
+    return pd.DataFrame(rows)
+
+
+def test_compute_stats_bucket_counts_sum_to_universe():
+    """score_distribution bucket counts must sum to universe_count."""
+    df = _make_stats_df([
+        {"OverallScore": 10.0, "score_safety": 20.0, "Sector": "Technology",       "Show": True},
+        {"OverallScore": 35.0, "score_safety": 40.0, "Sector": "Technology",       "Show": False},
+        {"OverallScore": 55.0, "score_safety": 50.0, "Sector": "Healthcare",       "Show": True},
+        {"OverallScore": 75.0, "score_safety": 60.0, "Sector": "Healthcare",       "Show": True},
+        {"OverallScore": 90.0, "score_safety": 70.0, "Sector": "Financial Services", "Show": False},
+    ])
+    stats = _compute_stats(df)
+    total = sum(stats["score_distribution"].values())
+    assert total == stats["universe_count"], (
+        f"score_distribution bucket counts ({total}) must sum to universe_count ({stats['universe_count']})"
+    )
+
+
+def test_compute_stats_low_safety_count():
+    """low_safety_count should count rows where score_safety < 30."""
+    df = _make_stats_df([
+        {"OverallScore": 50.0, "score_safety": 10.0, "Sector": "Technology", "Show": True},
+        {"OverallScore": 60.0, "score_safety": 29.9, "Sector": "Technology", "Show": True},
+        {"OverallScore": 70.0, "score_safety": 30.0, "Sector": "Healthcare", "Show": False},  # boundary
+        {"OverallScore": 80.0, "score_safety": 50.0, "Sector": "Healthcare", "Show": True},
+    ])
+    stats = _compute_stats(df)
+    assert stats["low_safety_count"] == 2, (
+        f"Expected 2 rows with score_safety < 30, got {stats['low_safety_count']}"
+    )
+
+
+def test_compute_stats_sector_breakdown_grouping():
+    """sector_breakdown groups by Sector, sorts by count desc."""
+    df = _make_stats_df([
+        {"OverallScore": 50.0, "score_safety": 40.0, "Sector": "Technology", "Show": True},
+        {"OverallScore": 60.0, "score_safety": 50.0, "Sector": "Technology", "Show": True},
+        {"OverallScore": 40.0, "score_safety": 35.0, "Sector": "Technology", "Show": False},
+        {"OverallScore": 70.0, "score_safety": 60.0, "Sector": "Healthcare", "Show": True},
+        {"OverallScore": 55.0, "score_safety": 45.0, "Sector": "Healthcare", "Show": False},
+    ])
+    stats = _compute_stats(df)
+    breakdown = stats["sector_breakdown"]
+    # Technology has 3 rows, Healthcare has 2 → Technology first
+    assert breakdown[0]["sector"] == "Technology", (
+        f"Technology (3 rows) should be first in sector_breakdown, got {breakdown[0]['sector']}"
+    )
+    assert breakdown[0]["count"] == 3
+    assert breakdown[1]["sector"] == "Healthcare"
+    assert breakdown[1]["count"] == 2
+
+
+def test_compute_stats_buy_signal_count():
+    """buy_signal_count should count rows where Show is True."""
+    df = _make_stats_df([
+        {"OverallScore": 50.0, "score_safety": 40.0, "Sector": "Technology", "Show": True},
+        {"OverallScore": 30.0, "score_safety": 20.0, "Sector": "Technology", "Show": False},
+        {"OverallScore": 60.0, "score_safety": 50.0, "Sector": "Healthcare", "Show": True},
+    ])
+    stats = _compute_stats(df)
+    assert stats["buy_signal_count"] == 2, (
+        f"Expected buy_signal_count=2, got {stats['buy_signal_count']}"
+    )
+
+
+def test_compute_stats_has_required_keys():
+    """_compute_stats must return all required schema keys."""
+    df = _make_stats_df([
+        {"OverallScore": 50.0, "score_safety": 40.0, "Sector": "Technology", "Show": True},
+    ])
+    stats = _compute_stats(df)
+    required_keys = [
+        "generated_at", "universe_count", "buy_signal_count", "low_safety_count",
+        "score_distribution", "pillar_averages", "sector_breakdown", "coverage_stats",
+    ]
+    for key in required_keys:
+        assert key in stats, f"Missing required key '{key}' in _compute_stats output"
+
+
+def test_compute_stats_sector_none_grouped_as_unknown():
+    """Rows with sector=None should be grouped as 'Unknown' in sector_breakdown."""
+    df = _make_stats_df([
+        {"OverallScore": 50.0, "score_safety": 40.0, "Sector": None, "Show": True},
+        {"OverallScore": 60.0, "score_safety": 50.0, "Sector": None, "Show": False},
+        {"OverallScore": 70.0, "score_safety": 60.0, "Sector": "Technology", "Show": True},
+    ])
+    stats = _compute_stats(df)
+    sectors = [b["sector"] for b in stats["sector_breakdown"]]
+    assert "Unknown" in sectors, (
+        f"sector=None rows should appear as 'Unknown' in sector_breakdown, got {sectors}"
+    )
+
+
+# ── Sector exclusion constants ────────────────────────────────────────────────
+
+def test_dcf_excluded_sectors_contains_financial_and_realestate():
+    """DCF_EXCLUDED_SECTORS must contain Financial Services and Real Estate."""
+    assert "Financial Services" in DCF_EXCLUDED_SECTORS
+    assert "Real Estate" in DCF_EXCLUDED_SECTORS
+
+
+def test_altman_excluded_sectors_contains_financial():
+    """ALTMAN_EXCLUDED_SECTORS must contain Financial Services."""
+    assert "Financial Services" in ALTMAN_EXCLUDED_SECTORS
+
+
+# ── _sector_allows (SECTOR-02 / D-10 / D-11) ──────────────────────────────────
+
+def test_sector_allows_financial_services_excludes_altman_dcf_and_ev_metrics():
+    """Financial Services: altman, dcf, earnings_yield, ev_ebit all excluded."""
+    fund = {"sector": "Financial Services"}
+    assert _sector_allows(fund, "altman") is False
+    assert _sector_allows(fund, "dcf") is False
+    assert _sector_allows(fund, "earnings_yield") is False
+    assert _sector_allows(fund, "ev_ebit") is False
+
+
+def test_sector_allows_real_estate_excludes_dcf_only():
+    """Real Estate: dcf excluded, but altman/earnings_yield/ev_ebit still allowed."""
+    fund = {"sector": "Real Estate"}
+    assert _sector_allows(fund, "dcf") is False
+    assert _sector_allows(fund, "altman") is True
+    assert _sector_allows(fund, "earnings_yield") is True
+    assert _sector_allows(fund, "ev_ebit") is True
+
+
+def test_sector_allows_none_sector_allows_all():
+    """sector=None means 'unknown, no exclusion applied' (Pitfall 7) — all metrics attempted."""
+    fund = {"sector": None}
+    for metric in ("altman", "dcf", "earnings_yield", "ev_ebit"):
+        assert _sector_allows(fund, metric) is True, f"expected True for metric={metric}"
+
+
+def test_sector_allows_other_sector_allows_all():
+    """A sector with no known exclusions (e.g. Technology) allows all metrics."""
+    fund = {"sector": "Technology"}
+    for metric in ("altman", "dcf", "earnings_yield", "ev_ebit"):
+        assert _sector_allows(fund, metric) is True, f"expected True for metric={metric}"
+
+
 # ── test runner ──────────────────────────────────────────────────────────────
 
 def run_all():
@@ -590,6 +739,21 @@ def run_all():
         test_dcf_discount_absent_does_not_affect_value,
         test_dcf_discount_negative_routes_to_zero,
         test_return_dict_has_new_keys,
+        # _compute_stats
+        test_compute_stats_bucket_counts_sum_to_universe,
+        test_compute_stats_low_safety_count,
+        test_compute_stats_sector_breakdown_grouping,
+        test_compute_stats_buy_signal_count,
+        test_compute_stats_has_required_keys,
+        test_compute_stats_sector_none_grouped_as_unknown,
+        # Sector exclusion constants
+        test_dcf_excluded_sectors_contains_financial_and_realestate,
+        test_altman_excluded_sectors_contains_financial,
+        # _sector_allows
+        test_sector_allows_financial_services_excludes_altman_dcf_and_ev_metrics,
+        test_sector_allows_real_estate_excludes_dcf_only,
+        test_sector_allows_none_sector_allows_all,
+        test_sector_allows_other_sector_allows_all,
     ]
     passed = 0
     failed = 0
