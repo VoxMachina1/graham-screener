@@ -79,7 +79,7 @@
 
 - [x] **TRAP-01**: An interim value-trap gate is computed from existing signals (debt/equity, current ratio, EPS stability, negative FCF) so a cheap-but-dying stock is flagged before any public Top-N ships
 - [ ] **TRAP-02**: A value-trap badge/flag is displayed on the Top-N page
-- [ ] **TRAP-03**: Altman Z and Piotroski F replace/augment the interim gate as the Safety-pillar driver once available
+- [x] **TRAP-03**: Altman Z and Piotroski F replace/augment the interim gate as the Safety-pillar driver once available
 
 ### New Valuation Signals
 
@@ -107,19 +107,19 @@
 ### New Frontend Pages
 
 - [ ] **PAGE-01**: `docs/top.html` Top 10/25 picks page (10/25 toggle), ranked by `OverallScore`, showing pillar sub-scores and headline signals
-- [ ] **PAGE-02**: `docs/stats.html` universe overview — score distribution, buy-signal counts, sector breakdown, and data-coverage stats
+- [x] **PAGE-02**: `docs/stats.html` universe overview — score distribution, buy-signal counts, sector breakdown, and data-coverage stats
 - [ ] **PAGE-03**: A shared `docs/app.js` holds the fetch/format/color/freshness primitives reused across pages (no build step)
 - [ ] **PAGE-04**: The site nav links Dashboard, Top Picks, Stats, and Methodology across all pages
 
 ### Historic Snapshots & Data
 
-- [ ] **DATA-01**: Periodic (weekly/monthly) snapshots of `results.json` are committed under `docs/data/snapshots/`, with the required `!docs/data/snapshots/*.json` `.gitignore` exception
-- [ ] **DATA-02**: The snapshot step reuses the min-row guard so no empty/partial snapshot is committed; a data-vintage caveat is documented
+- [x] **DATA-01**: Periodic (weekly/monthly) snapshots of `results.json` are committed under `docs/data/snapshots/`, with the required `!docs/data/snapshots/*.json` `.gitignore` exception
+- [x] **DATA-02**: The snapshot step reuses the min-row guard so no empty/partial snapshot is committed; a data-vintage caveat is documented
 - [ ] **DATA-03**: (Optional) A 30-day fundamentals cache bounds runtime/rate-limit for the heavy Phase-C statement fetches
 
 ### Methodology Documentation
 
-- [ ] **METH-01**: `methodology.html` is updated to document the new signals, the 4-pillar absolute scoring, the thresholds, and the sector guards
+- [x] **METH-01**: `methodology.html` is updated to document the new signals, the 4-pillar absolute scoring, the thresholds, and the sector guards
 
 ---
 
@@ -211,13 +211,13 @@
 | SIGNAL-07 | Phase 6 | Pending | Shareholder yield (dividend + net buyback) + low-coverage flag |
 | SIGNAL-08 | Phase 7 | Complete | Piotroski F-Score (0–9) from 2yr statements |
 | SIGNAL-09 | Phase 7 | Complete | Altman Z-Score (Z'' variant) distress zones — penalty/veto |
-| TRAP-03 | Phase 7 | Pending | Altman Z + Piotroski upgrade interim gate as Safety driver |
+| TRAP-03 | Phase 7 | Complete | Altman Z + Piotroski upgrade interim gate as Safety driver |
 | DCF-01 | Phase 7 | Complete | Forward two-stage DCF intrinsic value + discount % |
 | DCF-02 | Phase 7 | Complete | Reverse DCF implied-vs-actual-growth gap |
 | DCF-03 | Phase 7 | Complete | DCF sector-guarded, terminal-g < discount-rate assert, bounded solver → None |
 | SECTOR-02 | Phase 7 | Pending | Per-metric sector applicability matrix; invalid = missing, never zero |
-| PAGE-02 | Phase 7 | Pending | docs/stats.html universe overview |
-| DATA-01 | Phase 7 | Pending | Periodic snapshots under docs/data/snapshots/ + .gitignore exception |
-| DATA-02 | Phase 7 | Pending | Snapshot reuses min-row guard; data-vintage caveat documented |
+| PAGE-02 | Phase 7 | Complete | docs/stats.html universe overview |
+| DATA-01 | Phase 7 | Complete | Periodic snapshots under docs/data/snapshots/ + .gitignore exception |
+| DATA-02 | Phase 7 | Complete | Snapshot reuses min-row guard; data-vintage caveat documented |
 | DATA-03 | Phase 7 | Pending | (Optional) 30-day fundamentals cache bounds runtime/rate-limit |
-| METH-01 | Phase 7 | Pending | methodology.html documents new signals, scoring, thresholds, guards |
+| METH-01 | Phase 7 | Complete | methodology.html documents new signals, scoring, thresholds, guards |

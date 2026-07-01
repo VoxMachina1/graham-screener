@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Score Foundation + Public Top-N** - Fix the Buy Price bug (fixture-verified), build the 4-pillar absolute composite from existing metrics behind an interim value-trap gate, and ship `top.html` with shared `app.js` and full-site nav (completed 2026-06-19)
   - [x] **Phase 5.1 (INSERTED): Corrective fixes** - Post-live-validation: anchored growth to the realized EPS CAGR (Finnhub `epsGrowth5Y` was inflated → fake 25% growers) and made the trap gate's EPS-stability check window-aware (8-of-10 rule was structurally 0 on 4-yr data → trap tripped for 100% of tickers / dead Safety pillar). See `phases/05-score-foundation-public-top-n/05.1-FIXES-SUMMARY.md` (completed 2026-06-20)
 - [x] **Phase 6: Cheap Factors + Sector** - Add the GICS sector field and the high-evidence factors that mostly already live in the Finnhub bundle (52w/5y distance + recency, FCF yield, EV/EBIT + earnings yield, ROIC, shareholder yield) and fold them into the composite
-- [ ] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs
+- [x] **Phase 7: Distress Signals, DCF, Stats & Snapshots** - Add Piotroski/Altman distress signals (upgrading the trap-gate), forward + reverse DCF with sector guards, the sector applicability matrix, `stats.html`, historic snapshots + cache, and refreshed methodology docs (completed 2026-07-01)
 
 ## Phase Details
 
@@ -162,7 +162,7 @@ Plans:
 
 **Note on DATA-03:** The optional 30-day fundamentals cache is **deferred out of Phase 7** per user decision (CONTEXT.md Deferred Ideas) — it adds engineering complexity and is best added once Phase 7 runtime is benchmarked. All other Phase 7 requirements are planned below.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 **Wave 1**
 
@@ -174,7 +174,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 07-03-PLAN.md — Pages + pipeline: 5-link nav + stats.html + history.html + top.html Safety chip + .gitignore exceptions + screener.yml monthly snapshot step + methodology refresh + human-verify (PAGE-02, DATA-01/02, METH-01, TRAP-03 UI)
+- [x] 07-03-PLAN.md — Pages + pipeline: 5-link nav + stats.html + history.html + top.html Safety chip + .gitignore exceptions + screener.yml monthly snapshot step + methodology refresh + human-verify (PAGE-02, DATA-01/02, METH-01, TRAP-03 UI)
 
 **UI hint:** yes
 
@@ -191,4 +191,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Google & Tiingo Cleanup | 1/1 | Complete | 2026-05-31 |
 | 5. Score Foundation + Public Top-N | 3/3 | Complete | 2026-06-19 |
 | 6. Cheap Factors + Sector | 2/2 | Complete | 2026-06-28 |
-| 7. Distress Signals, DCF, Stats & Snapshots | 2/3 | In Progress|  |
+| 7. Distress Signals, DCF, Stats & Snapshots | 3/3 | Complete   | 2026-07-01 |
