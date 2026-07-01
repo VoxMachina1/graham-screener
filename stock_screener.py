@@ -1227,11 +1227,12 @@ def _compute_piotroski(
     elif total_assets_curr:
         criteria_counted += 1  # missing ocf or net_income → fail
 
-    # F5: Leverage decreased (long_term_debt / avg_total_assets) — skip if prev absent
-    if long_term_debt_prev is not None and total_assets_prev and total_assets_curr:
+    # F5: Leverage decreased (long_term_debt / avg_total_assets) — skip if prev absent,
+    # and fail safe (do not award) if current-year long-term-debt is absent (matches F6/F8).
+    if long_term_debt_prev is not None and total_assets_prev and total_assets_curr and long_term_debt_curr is not None:
         criteria_counted += 1
         avg_assets = (total_assets_curr + total_assets_prev) / 2.0
-        ltd_ratio_curr = (long_term_debt_curr / avg_assets) if long_term_debt_curr is not None else 0
+        ltd_ratio_curr = long_term_debt_curr / avg_assets
         ltd_ratio_prev = long_term_debt_prev / total_assets_prev
         if ltd_ratio_curr < ltd_ratio_prev:
             score += 1
