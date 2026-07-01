@@ -314,6 +314,68 @@ def test_piotroski_skips_comparison_when_prev_absent():
     assert 0 <= result <= 3, f"expected 0–3 (only F1/F2/F4 count), got {result}"
 
 
+def test_piotroski_f5_fails_safe_on_missing_ltd_curr():
+    """
+    F5 ('leverage decreased') must NOT award its point when current-year
+    long-term-debt cannot be located, mirroring F6/F8's fail-safe convention
+    (CR-02). A fixture with prior-year LTD present but current-year LTD
+    ABSENT must score exactly ONE point lower than an otherwise-identical
+    fixture where current-year LTD IS present and legitimately low enough
+    to pass the "leverage decreased" comparison.
+    """
+    inc_curr = _make_income_curr()
+    inc_prev = _make_income_curr(net_income=800, gross_profit=3_200, revenue=9_000, ebit=1_200)
+    cf_curr = _make_cashflow_curr()
+    cf_prev = _make_cashflow_curr(ocf=1_800)
+
+    # Prior-year balance sheet: Long Term Debt present (2500), Total Assets=25000
+    # -> ltd_ratio_prev = 2500 / 25000 = 0.10
+    bs_prev = _make_df({
+        "Total Assets":                           (25_000, 23_000),
+        "Total Current Assets":                   (7_000,  6_000),
+        "Total Current Liabilities":              (3_500,  4_000),
+        "Long Term Debt":                         (2_500,  3_000),
+        "Stockholders Equity":                    (9_000,  8_000),
+        "Retained Earnings":                      (4_000,  3_000),
+        "Total Liabilities Net Minority Interest": (7_500, 8_000),
+        "Ordinary Shares Number":                 (1_000,  1_100),
+    })
+
+    # Current-year balance sheet WITHOUT a "Long Term Debt" row at all.
+    bs_curr_missing_ltd = _make_df({
+        "Total Assets":                           (20_000, 18_000),
+        "Total Current Assets":                   (8_000,  7_000),
+        "Total Current Liabilities":              (3_000,  3_500),
+        "Stockholders Equity":                    (10_000, 9_000),
+        "Retained Earnings":                      (5_000,  4_000),
+        "Total Liabilities Net Minority Interest": (7_000, 7_500),
+        "Ordinary Shares Number":                 (900,    1_000),
+    })
+
+    # Identical current-year balance sheet, but WITH a present, low
+    # "Long Term Debt" (2000) that legitimately passes the F5 comparison:
+    # ltd_ratio_curr = 2000 / avg(20000, 25000) = 2000 / 22500 = 0.0889 < 0.10 -> PASS.
+    bs_curr_present_ltd = _make_df({
+        "Total Assets":                           (20_000, 18_000),
+        "Total Current Assets":                   (8_000,  7_000),
+        "Total Current Liabilities":              (3_000,  3_500),
+        "Long Term Debt":                         (2_000,  2_500),
+        "Stockholders Equity":                    (10_000, 9_000),
+        "Retained Earnings":                      (5_000,  4_000),
+        "Total Liabilities Net Minority Interest": (7_000, 7_500),
+        "Ordinary Shares Number":                 (900,    1_000),
+    })
+
+    score_missing = _compute_piotroski(inc_curr, inc_prev, bs_curr_missing_ltd, bs_prev, cf_curr, cf_prev)
+    score_present = _compute_piotroski(inc_curr, inc_prev, bs_curr_present_ltd, bs_prev, cf_curr, cf_prev)
+
+    assert score_missing is not None and score_present is not None
+    assert score_present == score_missing + 1, (
+        f"expected present-LTD score ({score_present}) to be exactly 1 higher than "
+        f"missing-LTD score ({score_missing}) — missing current-year LTD must not award F5"
+    )
+
+
 # ── _compute_altman_z ────────────────────────────────────────────────────────
 
 def test_altman_z_known_fixture():
@@ -724,6 +786,7 @@ def run_all():
         test_piotroski_all_fail_returns_0,
         test_piotroski_none_when_no_statements,
         test_piotroski_skips_comparison_when_prev_absent,
+        test_piotroski_f5_fails_safe_on_missing_ltd_curr,
         # _compute_altman_z
         test_altman_z_known_fixture,
         test_altman_z_none_when_total_assets_zero,
