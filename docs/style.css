@@ -304,16 +304,6 @@ nav.main-nav {
   font-family: "JetBrains Mono", monospace;
 }
 
-.trap-badge {
-  display: inline-block;
-  background: #bf616a;
-  color: #eceff4;
-  font-weight: 600;
-  font-size: 0.82rem;
-  padding: 4px 8px;
-  border-radius: 3px;
-}
-
 .pillar-chip {
   display: inline-block;
   background: #434c5e;

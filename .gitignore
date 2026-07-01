@@ -3,6 +3,9 @@
 *.json
 !.planning/*.json
 !docs/data/results.json
+!docs/data/stats.json
+!docs/data/snapshots/*.json
+!docs/data/snapshots/index.json
 # If you ever download your service account key into the project folder,
 # this prevents it from being committed. Keep it outside the repo if possible.
 

@@ -103,12 +103,13 @@ function updateFreshnessUI(generatedAt) {
   if (ageDays > 3) banner.classList.add("visible");
 }
 
-// ── Site nav (array-driven — adding Phase 7 Stats entry is one line) ──────
+// ── Site nav (array-driven — adding Phase 7 Stats/History entries) ────────
 var NAV_ENTRIES = [
   { label: "Dashboard",   href: "index.html",       key: "dashboard" },
   { label: "Top Picks",   href: "top.html",          key: "top" },
+  { label: "Stats",       href: "stats.html",        key: "stats" },
+  { label: "History",     href: "history.html",      key: "history" },
   { label: "Methodology", href: "methodology.html",  key: "methodology" }
-  // Phase 7: { label: "Stats", href: "stats.html", key: "stats" }
 ];
 
 function buildNav(activePage) {
