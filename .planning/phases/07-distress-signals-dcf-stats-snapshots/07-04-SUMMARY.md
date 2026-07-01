@@ -107,3 +107,9 @@ None - no external service configuration required. (The `env:` block references 
 ---
 *Phase: 07-distress-signals-dcf-stats-snapshots*
 *Completed: 2026-07-01*
+
+## Self-Check: PASSED
+
+All modified files and all task commits (RED/GREEN pairs + workflow fix) verified present on disk / in git log:
+- `stock_screener.py`, `tests/test_distress_phase7.py`, `tests/test_dcf_phase7.py`, `.github/workflows/screener.yml`, `.planning/phases/07-distress-signals-dcf-stats-snapshots/07-04-SUMMARY.md` — all FOUND.
+- Commits `a399c7d`, `2d0aedc`, `8da8267`, `83995e6`, `9434baa`, `a62b2f4` — all FOUND in git log.
