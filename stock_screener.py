@@ -305,6 +305,15 @@ DCF_ERP                 = 5.5   # [ASSUMED] equity risk premium % (config-overri
 DCF_TERMINAL_GROWTH_CAP = 3.0   # [ASSUMED] cap terminal growth at nominal GDP %
 DCF_EXCLUDED_SECTORS    = {"Financial Services", "Real Estate"}
 ALTMAN_EXCLUDED_SECTORS = {"Financial Services"}
+# [ASSUMED] Lower bound on the reconciled growth g before it reaches the DCF
+# helpers. No empirical anchor; -50% matches the reverse-DCF search lower
+# bound already used in _compute_dcf_reverse (lo=-50.0). Floors distressed-EPS
+# growth so (1+g) stays positive; forward and reverse DCF share this bound.
+# Calibrate in a later tuning phase.
+DCF_GROWTH_FLOOR = -50.0
+# yfinance GICS sector strings for the cyclical group D-10 requires flagging.
+# NOTE: yfinance returns "Basic Materials", not "Materials".
+CYCLICAL_SECTORS = {"Energy", "Basic Materials"}
 
 
 def _sector_allows(fund: dict, metric: str) -> bool:
@@ -2131,11 +2140,16 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     altman_z = _compute_altman_z(bs_df, inc_df) if _sector_allows(fund, "altman") else None
 
     if _sector_allows(fund, "dcf"):
-        dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g, aaa_yield, price)
-        dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g)
+        # CR-03 / D-10: floor DCF growth so severely negative Finnhub growth can't
+        # sign-flip (1+g) into a false deep-value signal; the un-floored g still
+        # routes to WORST_DISCOUNT for Lynch/Graham above.
+        g_dcf = max(g, DCF_GROWTH_FLOOR)
+        dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g_dcf, aaa_yield, price)
+        dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g_dcf)
     else:
         dcf_intrinsic, dcf_discount_pct = None, None
         dcf_implied_growth, dcf_reverse_converged = None, False
+    dcf_cyclical_flag = (fund.get("sector") in CYCLICAL_SECTORS) and _sector_allows(fund, "dcf")
 
     # D-11: Financial Services excluded from EV/EBIT + earnings yield (None, never zero)
     earnings_yield = fund.get("earnings_yield") if _sector_allows(fund, "earnings_yield") else None
@@ -2188,6 +2202,7 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["DCF_Discount_Pct"]       = round(float(dcf_discount_pct), 2) if dcf_discount_pct is not None else None
     row["DCF_Implied_Growth"]     = round(float(dcf_implied_growth), 2) if dcf_implied_growth is not None else None
     row["dcf_reverse_converged"]  = dcf_reverse_converged
+    row["DCF_Cyclical_Flag"]      = dcf_cyclical_flag
     row["score_piotroski_sub"]    = scores["piotroski"]
     row["score_altman_sub"]       = scores["altman"]
     row["score_dcf_discount_sub"] = scores["dcf_discount"]
