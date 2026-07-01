@@ -45,9 +45,15 @@ These shipped in v1.0 (phases 1–4):
 - ✓ Summary preset view and methodology documentation page — v1.0
 - ✓ Removed all Google dependencies and Tiingo dead config — v1.0
 
+These shipped in v2.0 (phases 5–7, completed 2026-07-01):
+
+- ✓ 4-pillar absolute `OverallScore` (Value/Quality/Growth/Safety), Buy Price formula fix, public Top-N page — Phase 5
+- ✓ GICS sector field + cheap high-evidence factors (52w/5y distance, FCF yield, EV/EBIT, ROIC, shareholder yield) — Phase 6
+- ✓ Piotroski F-Score + Altman Z'' as the Safety-pillar driver, forward + reverse DCF, per-metric sector applicability matrix, `stats.html`, monthly historic snapshots, refreshed methodology docs — Phase 7
+
 ### Active
 
-The v2.0 milestone targets — see "Current Milestone" above and `.planning/REQUIREMENTS.md`.
+None — v2.0 milestone complete. DATA-03 (optional 30-day fundamentals cache) was explicitly deferred out of Phase 7 scope; see `.planning/REQUIREMENTS.md` for its pending status if picked up in a future milestone.
 
 ### Out of Scope
 
@@ -102,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 — milestone v2.0 started*
+*Last updated: 2026-07-01 — milestone v2.0 complete (Phase 7 shipped)*
