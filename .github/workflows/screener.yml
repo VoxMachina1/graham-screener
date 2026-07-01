@@ -54,6 +54,9 @@ jobs:
 
       - name: Commit monthly snapshot
         if: steps.check-date.outputs.is_first_weekday == 'true'
+        env:
+          FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
+          FINNHUB_API_KEY:     ${{ secrets.FINNHUB_API_KEY }}
         run: |
           # Min-row guard (DATA-02) is upstream: write_json() exits non-zero
           # when < 100 rows, which fails the "Run screener" step above and
