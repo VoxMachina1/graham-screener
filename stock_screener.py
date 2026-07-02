@@ -39,6 +39,7 @@ FINNHUB_API_KEY  = os.environ["FINNHUB_API_KEY"]
 
 # Screener parameters
 GROWTH_CAP          = 25.0   # cap 'g' at this % to prevent distortion
+GROWTH_FINNHUB_FLOOR = -100.0  # below this, Finnhub epsGrowth5Y is impossible (EPS can't fall >100% from positive base) — treat as bad data, not real growth
 GRAHAM_NO_GROWTH_PE = 8.5    # classic Graham baseline P/E; change to 7 for conservative
 GRAHAM_HIST_AAA     = 4.4    # Graham's original historical AAA yield constant
 FRED_AAA_SERIES     = "AAA"  # Moody's AAA corporate bond yield series on FRED
@@ -1737,10 +1738,17 @@ def _reconcile_growth(g_finnhub: float | None, g_cagr: float | None) -> float | 
     When a realized CAGR exists we take the lower (reality-anchored) value; otherwise
     we fall back to whichever single value is present.
 
+    Finnhub values below GROWTH_FINNHUB_FLOOR are mathematically impossible (EPS
+    can't drop >100% from a positive base) and are discarded before reconciliation,
+    since taking min() with them would only make the existing inflation-guard worse
+    (e.g. KMB: g_finnhub=-242% would win over a sane g_cagr just for being lower).
+
     # ponytail: endpoint-sensitive (uses first/last EPS in the available window).
     #   Good enough as an interim anchor — Phase 7 refines growth handling
     #   (upgrade path: regression slope across the window, or a longer EPS history).
     """
+    if g_finnhub is not None and g_finnhub < GROWTH_FINNHUB_FLOOR:
+        g_finnhub = None
     if g_finnhub is None:
         return g_cagr
     if g_cagr is None:
