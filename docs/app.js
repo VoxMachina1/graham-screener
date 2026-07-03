@@ -89,6 +89,13 @@ function pctFmt(cell) {
   return typeof val === "number" ? val.toFixed(1) + "%" : val;
 }
 
+// ── Formatter: tri-state OK/boolean columns (1/0/null → Yes/No/—) ─────────
+function okFmt(cell) {
+  var val = cell.getValue();
+  if (val === null || val === undefined) return "—";
+  return (val === true || val === 1) ? "Yes" : "No";
+}
+
 // ── Freshness badge and stale-data banner ─────────────────────────────────
 function updateFreshnessUI(generatedAt) {
   var badge  = document.getElementById("freshness-badge");

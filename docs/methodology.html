@@ -433,7 +433,8 @@
         <dt>EPS growth (5Y CAGR), P/B ratio, market cap, current ratio, debt/equity</dt>
         <dd>Finnhub — pre-calculated fundamentals; yfinance history is used as fallback when Finnhub data is absent</dd>
         <dt>AAA corporate bond yield</dt>
-        <dd>FRED (Federal Reserve Economic Data) — Moody's AAA series, fetched live on each run</dd>
+        <dd>FRED (Federal Reserve Economic Data) — Moody's AAA series, fetched live on each run.
+          Current value: <strong id="aaa-yield-current">loading&hellip;</strong></dd>
         <dt>Index constituents (S&amp;P 500, Dow 30, Nasdaq-100)</dt>
         <dd>Wikipedia — scraped on each run to keep the universe current</dd>
       </dl>
@@ -457,10 +458,30 @@
   </main>
 
   <!-- ── Shared primitives (buildNav) ── -->
-  <script src="app.js"></script>
+  <script src="app.js?v=20260702"></script>
 
   <script>
     buildNav("methodology");
+
+    // ── Auto-updating AAA yield note (sourced from the latest screener run) ──
+    fetch("data/results.json?v=" + Date.now())
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        var el = document.getElementById("aaa-yield-current");
+        if (!el) return;
+        var row = data && data.rows && data.rows.find(function(r) {
+          return typeof r.AAA_Yield === "number";
+        });
+        if (!row) { el.textContent = "unavailable"; return; }
+        var dateStr = data.generated_at
+          ? new Date(data.generated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+          : "unknown date";
+        el.textContent = row.AAA_Yield.toFixed(2) + "% (as of " + dateStr + ")";
+      })
+      .catch(function() {
+        var el = document.getElementById("aaa-yield-current");
+        if (el) el.textContent = "unavailable";
+      });
 
     var tabs = document.querySelectorAll('[role="tab"]');
 

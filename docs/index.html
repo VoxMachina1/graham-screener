@@ -68,7 +68,7 @@
   <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.4.0/dist/js/tabulator.min.js"></script>
 
   <!-- ── Shared primitives (SIGNAL_COLORS, formatters, buildNav) ── -->
-  <script src="app.js"></script>
+  <script src="app.js?v=20260702"></script>
 
   <script>
   /* ─────────────────────────────────────────────────────────────────────────
@@ -92,9 +92,10 @@
       { title: "EPS Annual",   field: "EPS_Annual",   sorter: "string", formatter: "plaintext", headerFilter: false, maxWidth: 160 },
       { title: "Div Yield %",  field: "DivYield_Pct", sorter: "number", formatter: pctFmt,    ...num },
       { title: "Growth %",     field: "Growth_g_Pct", sorter: "number", formatter: pctFmt,    ...num },
-      { title: "AAA Yield",    field: "AAA_Yield",    sorter: "number", formatter: numFmt(2), ...num },
+      { title: "AAA Yield",    field: "AAA_Yield",    visible: false, sorter: "number", formatter: numFmt(2), ...num },
       { title: "P/B",          field: "PB_Ratio",     sorter: "number", formatter: numFmt(2), ...num },
       { title: "Indexes",      field: "Indexes",      sorter: "string", ...drop },
+      { title: "Sector",       field: "Sector",       sorter: "string", ...drop },
 
       // ── Lynch metrics ─────────────────────────────────────────────────────
       { title: "Lynch PE",     field: "Lynch_PE",           sorter: "number", formatter: numFmt(2), ...num },
@@ -131,14 +132,14 @@
 
       // ── Defensive metrics ─────────────────────────────────────────────────
       { title: "Def Score",    field: "DefensiveScore",  sorter: "number", formatter: numFmt(1), ...num },
-      { title: "Size OK",      field: "Size_OK",         sorter: "number", formatter: numFmt(0), ...num },
-      { title: "Curr Ratio OK",field: "CurrRatio_OK",    sorter: "number", formatter: numFmt(0), ...num },
-      { title: "Debt/Eq OK",   field: "DebtEq_OK",       sorter: "number", formatter: numFmt(0), ...num },
-      { title: "EPS Stab",     field: "EPS_Stability",   sorter: "number", formatter: numFmt(0), ...num },
-      { title: "Div Record",   field: "Div_Record",      sorter: "number", formatter: numFmt(0), ...num },
-      { title: "EPS Gr 10Y",   field: "EPS_Growth10Y",   sorter: "number", formatter: numFmt(0), ...num },
-      { title: "PE Limit",     field: "PE_Limit",        sorter: "number", formatter: numFmt(0), ...num },
-      { title: "PB Limit",     field: "PB_Limit",        sorter: "number", formatter: numFmt(0), ...num },
+      { title: "Size OK",      field: "Size_OK",         sorter: "number", formatter: okFmt, ...num },
+      { title: "Curr Ratio OK",field: "CurrRatio_OK",    sorter: "number", formatter: okFmt, ...num },
+      { title: "Debt/Eq OK",   field: "DebtEq_OK",       sorter: "number", formatter: okFmt, ...num },
+      { title: "EPS Stab",     field: "EPS_Stability",   sorter: "number", formatter: okFmt, ...num },
+      { title: "Div Record",   field: "Div_Record",      sorter: "number", formatter: okFmt, ...num },
+      { title: "EPS Gr 10Y",   field: "EPS_Growth10Y",   sorter: "number", formatter: okFmt, ...num },
+      { title: "PE Limit",     field: "PE_Limit",        sorter: "number", formatter: okFmt, ...num },
+      { title: "PB Limit",     field: "PB_Limit",        sorter: "number", formatter: okFmt, ...num },
 
       // ── Defensive signal column (traffic-light) ───────────────────────────
       { title: "Defensive",    field: "DefensiveLabel", sorter: "string",
@@ -155,6 +156,26 @@
         headerFilter: "list",
         headerFilterParams: { values: { "true": "Yes", "false": "—", "": "All" }, clearable: true }
       },
+      { title: "Coverage %",   field: "coverage_pct",  sorter: "number", formatter: pctFmt, ...num },
+
+      // ── Cheap factors (Phase 6) ───────────────────────────────────────────
+      { title: "FCF Yield %",   field: "FCF_Yield_Pct",        sorter: "number", formatter: pctFmt, ...num },
+      { title: "EV/EBIT",       field: "EV_EBIT",              sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Earn Yield %",  field: "Earnings_Yield_Pct",   sorter: "number", formatter: pctFmt, ...num },
+      { title: "ROIC %",        field: "ROIC_Pct",             sorter: "number", formatter: pctFmt, ...num },
+      { title: "Shr Yield %",   field: "Shareholder_Yield_Pct",sorter: "number", formatter: pctFmt, ...num },
+      { title: "Dist 52wHi %",  field: "Dist_52w_High_Pct",    sorter: "number", formatter: pctFmt, ...num },
+      { title: "Dist 52wLo %",  field: "Dist_52w_Low_Pct",     sorter: "number", formatter: pctFmt, ...num },
+      { title: "Dist 5yLo %",   field: "Dist_5y_Low_Pct",      sorter: "number", formatter: pctFmt, ...num },
+
+      // ── Distress signals + DCF (Phase 7) ──────────────────────────────────
+      { title: "Piotroski F",   field: "Piotroski_F",          sorter: "number", formatter: numFmt(0), ...num },
+      { title: "Altman Z″",field: "Altman_Z",             sorter: "number", formatter: numFmt(2), ...num },
+      { title: "DCF Value",     field: "DCF_Intrinsic_Value",  sorter: "number", formatter: numFmt(2), ...num },
+      { title: "DCF Disc %",    field: "DCF_Discount_Pct",     sorter: "number", formatter: pctFmt, ...num },
+      { title: "DCF Impl Gr %", field: "DCF_Implied_Growth",   sorter: "number", formatter: pctFmt, ...num },
+      { title: "DCF Converged", field: "dcf_reverse_converged",sorter: "number", formatter: okFmt, ...num },
+      { title: "Cyclical",      field: "DCF_Cyclical_Flag",    sorter: "number", formatter: okFmt, ...num },
 
       // ── Combined ──────────────────────────────────────────────────────────
       { title: "Score",        field: "CombinedScore",  sorter: "number", formatter: numFmt(2), ...num },
@@ -172,12 +193,16 @@
 
   // ── Summary preset columns (D-01 — locked) ────────────────────────────────
   const SUMMARY_COLS = new Set([
-    "Ticker", "Price", "OverallScore", "is_trap", "CombinedScore",
+    "Ticker", "Price", "Sector", "OverallScore", "is_trap", "CombinedScore",
     "Lynch_Lynch_Status", "Lynch_Lynch_Score", "Lynch_Lynch_BuyPrice",
     "Lynch_PEG_Status", "Lynch_PEGY_Status",
     "Graham_Graham_Status", "Graham_Graham_Discount_Pct", "Graham_Graham_FV",
-    "DefensiveScore", "DefensiveLabel"
+    "DefensiveScore", "DefensiveLabel",
+    "Piotroski_F", "Altman_Z", "DCF_Discount_Pct"
   ]);
+
+  // ── Columns hidden in every preset — utility fields, or moved to methodology.html ──
+  const ALWAYS_HIDDEN_COLS = new Set(["AAA_Yield", "Show", "Error"]);
 
   // ── Error-row filter (module scope — removeFilter needs same reference) ───
   function noErrorFilter(data) {
@@ -187,7 +212,9 @@
   // ── Column preset apply ───────────────────────────────────────────────────
   function applyPreset(table, preset, allFields) {
     allFields.forEach(function(field) {
-      if (preset === "summary") {
+      if (ALWAYS_HIDDEN_COLS.has(field)) {
+        table.hideColumn(field);
+      } else if (preset === "summary") {
         SUMMARY_COLS.has(field) ? table.showColumn(field) : table.hideColumn(field);
       } else {
         table.showColumn(field);
