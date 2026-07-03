@@ -284,11 +284,14 @@ def test_piotroski_none_when_no_statements():
     assert result is None, f"expected None, got {result}"
 
 
-def test_piotroski_skips_comparison_when_prev_absent():
+def test_piotroski_returns_none_when_only_single_year_criteria_available():
     """
-    When prior-year DataFrames are None, comparison criteria (F3, F5, F6, F7, F8, F9)
-    are skipped (not failed). Single-year criteria (F1, F2, F4) still contribute.
-    Result should be between 1 and 3 (only F1, F2, F4 can score).
+    WR-04: when prior-year DataFrames are entirely None, only the 3 always-available
+    single-year criteria (F1, F2, F4) can be evaluated (criteria_counted == 3). A raw
+    score out of a theoretical 9 would then land in the distressed/weak band regardless
+    of how F1/F2/F4 actually scored — so _compute_piotroski returns None instead,
+    routing to the D-04 neutral-50 Safety-pillar fallback (same as a fully-missing
+    ticker), rather than unfairly penalizing thin-history tickers (e.g. recent IPOs).
     """
     inc_curr = _make_df({
         "Net Income":     (1_000, 800),
@@ -310,8 +313,43 @@ def test_piotroski_skips_comparison_when_prev_absent():
     })
 
     result = _compute_piotroski(inc_curr, None, bs_curr, None, cf_curr, None)
-    assert result is not None, "expected an int when curr statements present"
-    assert 0 <= result <= 3, f"expected 0–3 (only F1/F2/F4 count), got {result}"
+    assert result is None, f"expected None (criteria_counted==3, at-or-below threshold), got {result}"
+
+
+def test_piotroski_returns_score_when_one_comparison_criterion_available():
+    """
+    WR-04 boundary case: with a single comparison criterion available in addition
+    to the 3 single-year criteria (criteria_counted == 4), _compute_piotroski must
+    return a real int score, not None — confirms the <=3 threshold doesn't over-fire.
+    F7 ("no dilution") only needs shares_prev + shares_curr, so a bs_prev containing
+    just "Ordinary Shares Number" activates F7 alone while leaving F3/F5/F6/F8/F9
+    skipped (their required prev labels are absent from this narrow bs_prev).
+    """
+    inc_curr = _make_df({
+        "Net Income":     (1_000, 800),
+        "Gross Profit":   (4_000, 3_200),
+        "Total Revenue":  (10_000, 9_000),
+    })
+    bs_curr = _make_df({
+        "Total Assets":                           (20_000, 18_000),
+        "Total Current Assets":                   (8_000,  7_000),
+        "Total Current Liabilities":              (3_000,  3_500),
+        "Long Term Debt":                         (2_000,  2_500),
+        "Stockholders Equity":                    (10_000, 9_000),
+        "Retained Earnings":                      (5_000,  4_000),
+        "Total Liabilities Net Minority Interest": (7_000, 7_500),
+        "Ordinary Shares Number":                 (900,    1_000),
+    })
+    bs_prev = _make_df({
+        "Ordinary Shares Number": (1_000, 1_100),
+    })
+    cf_curr = _make_df({
+        "Operating Cash Flow": (2_000, 1_800),
+    })
+
+    result = _compute_piotroski(inc_curr, None, bs_curr, bs_prev, cf_curr, None)
+    assert result is not None, "expected an int when 4 criteria (F1/F2/F4/F7) are evaluable"
+    assert 0 <= result <= 4, f"expected 0-4 (F1/F2/F4/F7 count), got {result}"
 
 
 def test_piotroski_f5_fails_safe_on_missing_ltd_curr():
@@ -785,7 +823,8 @@ def run_all():
         test_piotroski_all_pass_returns_9,
         test_piotroski_all_fail_returns_0,
         test_piotroski_none_when_no_statements,
-        test_piotroski_skips_comparison_when_prev_absent,
+        test_piotroski_returns_none_when_only_single_year_criteria_available,
+        test_piotroski_returns_score_when_one_comparison_criterion_available,
         test_piotroski_f5_fails_safe_on_missing_ltd_curr,
         # _compute_altman_z
         test_altman_z_known_fixture,

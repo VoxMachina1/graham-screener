@@ -456,7 +456,10 @@ def overall_score(
     current_ratio: float | None,
     growth_g: float | None,
     growth_stability: float | None,
-    coverage_fraction: float,
+    coverage_fraction: float,  # vestigial (WR-03): unused since the Phase 7 Safety-pillar
+                                # rewrite dropped the trap-gate baseline it used to scale;
+                                # kept only for call-site compatibility with trap_gate()'s
+                                # return signature and existing test fixtures.
     aaa_yield: float,
     fcf_yield: float | None = None,
     earnings_yield: float | None = None,
@@ -1153,6 +1156,14 @@ def _compute_piotroski(
       - Missing prior-year input for a comparison criterion → criterion skipped (not counted).
       - All statements absent → return None.
 
+    WR-04: returns None (not a raw score) when 3 or fewer criteria were evaluable —
+    i.e. only the always-available single-year criteria (F1, F2, F4) could be assessed
+    and zero 2-year comparison signal exists. A raw score out of a theoretical 9 in that
+    case would land in the distressed/weak band regardless of how F1/F2/F4 actually
+    scored, unfairly penalizing thin-history tickers (e.g. recent IPOs). Callers should
+    treat None the same as "absent" — it routes to the D-04 neutral-50 fallback at the
+    Safety-pillar level, same as a fully-missing ticker.
+
     Columns must be newest-first (do NOT sort_index — per Pitfall 1 in RESEARCH.md).
     internal — for tests only.
     """
@@ -1203,13 +1214,15 @@ def _compute_piotroski(
     criteria_counted = 0  # track how many criteria were actually evaluated
 
     # F1: ROA > 0 (Net Income / Total Assets, current year)
+    # WR-04: unconditional criteria_counted += 1, matching F2's fail-on-missing
+    # pattern — a wholly-missing net_income_curr must count as an evaluated
+    # (failed) criterion, not be silently skipped.
     if net_income_curr is not None and total_assets_curr:
         criteria_counted += 1
         if (net_income_curr / total_assets_curr) > 0:
             score += 1
-    elif net_income_curr is not None:
-        # total_assets missing → conservative fail
-        criteria_counted += 1
+    else:
+        criteria_counted += 1  # missing net_income or total_assets → conservative fail
 
     # F2: OCF > 0 (current year)
     if ocf_curr is not None:
@@ -1277,7 +1290,13 @@ def _compute_piotroski(
         if at_curr > at_prev:
             score += 1
 
-    if criteria_counted == 0:
+    # WR-04: with 2-year history absent entirely, only the 3 always-available
+    # single-year criteria (F1, F2, F4) can be evaluated — a raw score out of a
+    # theoretical 9 then lands in the "distressed"/"weak" bands regardless of
+    # how those 3 actually scored, unfairly penalizing thin-history tickers
+    # (e.g. recent IPOs). Route to None (→ D-04 neutral-50 at the Safety-pillar
+    # level) instead of a misleadingly small 0-3 raw score.
+    if criteria_counted <= 3:
         return None
     return score
 
@@ -2152,8 +2171,16 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
         # sign-flip (1+g) into a false deep-value signal; the un-floored g still
         # routes to WORST_DISCOUNT for Lynch/Graham above.
         g_dcf = max(g, DCF_GROWTH_FLOOR)
-        dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g_dcf, aaa_yield, price)
-        dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g_dcf)
+        try:
+            dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g_dcf, aaa_yield, price)
+            dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g_dcf)
+        except ValueError as e:
+            # WR-01: terminal_growth >= WACC raises by design (stock_screener.py
+            # _compute_dcf_forward docstring). Degrade this ticker's DCF fields to
+            # None rather than aborting the entire multi-hundred-ticker run.
+            log.warning(f"DCF error for {ticker}: {e}")
+            dcf_intrinsic, dcf_discount_pct = None, None
+            dcf_implied_growth, dcf_reverse_converged = None, False
     else:
         dcf_intrinsic, dcf_discount_pct = None, None
         dcf_implied_growth, dcf_reverse_converged = None, False
