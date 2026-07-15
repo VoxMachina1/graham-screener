@@ -391,7 +391,9 @@
         <dt>Valuation range</dt>
         <dd>The low and high values pair changes in initial growth, WACC, and terminal growth. The
             base DCF alone feeds scoring; the range is displayed to make assumption sensitivity
-            visible.</dd>
+            visible. If the stressed enterprise-to-equity bridge falls below net debt, the low
+            common-equity value is reported as zero rather than as missing, consistent with
+            limited liability, and an explicit warning is attached.</dd>
         <dt>Forward discount</dt>
         <dd><code>DCF_Discount_Pct = (1 &minus; Price &divide; Intrinsic Value) &times; 100</code>
             &mdash; positive means the stock trades below its DCF intrinsic value (cheap signal),

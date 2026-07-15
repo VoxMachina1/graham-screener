@@ -1788,7 +1788,9 @@ def _fcff_value_per_share(
 
     equity_value = enterprise_value + cash - total_debt
     if equity_value <= 0:
-        return (None, enterprise_value, terminal_share_pct)
+        # Common equity has limited liability: an EV bridge below net debt is
+        # economically a zero-value outcome, not a missing calculation.
+        return (0.0, enterprise_value, terminal_share_pct)
     return (equity_value / diluted_shares, enterprise_value, terminal_share_pct)
 
 
@@ -1820,7 +1822,7 @@ def _compute_fcff_dcf(
         total_debt,
         diluted_shares,
     )
-    if value is None:
+    if value is None or value <= 0:
         return None
 
     low_value, _, _ = _fcff_value_per_share(
@@ -2787,6 +2789,10 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
                 )
                 if dcf_implied_growth is not None and dcf_result is not None:
                     dcf_growth_gap = dcf_result["growth_used_pct"] - dcf_implied_growth
+                if dcf_result is not None and dcf_result["value_low"] == 0:
+                    dcf_assumption_warnings.append(
+                        "Stressed DCF case implies zero common-equity value"
+                    )
                 if (
                     dcf_result is not None
                     and dcf_result["terminal_value_pct"] > DCF_HIGH_TERMINAL_VALUE_PCT

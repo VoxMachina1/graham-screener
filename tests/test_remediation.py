@@ -117,6 +117,23 @@ def test_fcff_dcf_paired_range_brackets_base():
     assert result["value_low"] < result["intrinsic_value"] < result["value_high"]
 
 
+def test_fcff_dcf_stressed_equity_value_is_zero_not_missing():
+    result = screener._compute_fcff_dcf(
+        base_fcff=100.0,
+        initial_growth_pct=5.0,
+        wacc=0.09,
+        terminal_growth_pct=2.0,
+        cash=0.0,
+        total_debt=1400.0,
+        diluted_shares=10.0,
+        price=10.0,
+    )
+    assert result is not None
+    assert result["intrinsic_value"] > 0
+    assert result["value_low"] == 0.0
+    assert result["value_high"] > result["intrinsic_value"]
+
+
 def test_more_debt_reduces_equity_value_per_share():
     low_debt, _, _ = screener._fcff_value_per_share(
         100.0, 5.0, 0.09, 2.0, 20.0, 20.0, 10.0
@@ -390,6 +407,7 @@ def run_all():
         test_screen_wacc_responds_to_beta,
         test_fcff_dcf_reverse_round_trip,
         test_fcff_dcf_paired_range_brackets_base,
+        test_fcff_dcf_stressed_equity_value_is_zero_not_missing,
         test_more_debt_reduces_equity_value_per_share,
         test_wacc_guardrail_prevents_terminal_rate_compression,
         test_currency_mismatch_detects_unconverted_adr_financials,

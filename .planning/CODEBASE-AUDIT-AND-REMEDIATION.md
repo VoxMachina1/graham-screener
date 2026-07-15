@@ -299,7 +299,7 @@ The documentation should be treated as a maintained product surface:
 
 - Existing offline test scripts: passing.
 - New remediation regression script: passing.
-- Total named cases after this branch: 172, plus the KO fixture assertions.
+- Total named cases after this branch: 173, plus the KO fixture assertions.
 - Live provider run: partially performed in an isolated output directory for all 518 tickers.
   Wikipedia, FRED, and Yahoo succeeded; the local Finnhub credential returned HTTP 401 for every
   ticker. The run exposed and drove the new provider-coverage gate, credential preflight, currency
