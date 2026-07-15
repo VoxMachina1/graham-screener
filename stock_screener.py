@@ -17,13 +17,12 @@ GitHub Actions setup:
 """
 
 import os
-import sys
 import json
 import logging
 import requests
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from fredapi import Fred
 from dotenv import load_dotenv
 from scipy.optimize import brentq
@@ -34,8 +33,8 @@ load_dotenv()
 # ─────────────────────────────────────────────
 # CONFIGURATION — all values come from env vars
 # ─────────────────────────────────────────────
-FRED_API_KEY     = os.environ["FRED_API_KEY"]
-FINNHUB_API_KEY  = os.environ["FINNHUB_API_KEY"]
+FRED_API_KEY     = os.environ.get("FRED_API_KEY")
+FINNHUB_API_KEY  = os.environ.get("FINNHUB_API_KEY")
 
 # Screener parameters
 GROWTH_CAP          = 25.0   # cap 'g' at this % to prevent distortion
@@ -43,6 +42,7 @@ GROWTH_FINNHUB_FLOOR = -100.0  # below this, Finnhub epsGrowth5Y is impossible (
 GRAHAM_NO_GROWTH_PE = 8.5    # classic Graham baseline P/E; change to 7 for conservative
 GRAHAM_HIST_AAA     = 4.4    # Graham's original historical AAA yield constant
 FRED_AAA_SERIES     = "AAA"  # Moody's AAA corporate bond yield series on FRED
+FRED_RISK_FREE_SERIES = "DGS10"  # 10-year Treasury constant maturity rate
 
 # Graham defensive-investor filter thresholds
 MIN_MARKET_CAP_B    = 2.0    # minimum market cap in $B
@@ -88,8 +88,8 @@ WORST_DISCOUNT = -999.0
 # YET — they are first-pass estimates.  Distribution monitoring is planned for
 # stats.html (Phase 7); expect tuning after real production runs.
 #
-# Rate-relativized thresholds (discount bands): scaled by SCORE_AAA_REFERENCE /
-# live AAA yield at runtime so a 15% discount is less impressive in a high-rate
+# Rate-relativized thresholds (discount bands): scaled by live AAA yield /
+# SCORE_AAA_REFERENCE at runtime so a 15% discount is less impressive in a high-rate
 # environment (SCORE-06).
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ SCORE_DISC_WIN_LO    = -100.0  # floor discount at -100% (2× fair value)
 SCORE_DISC_WIN_HI    =   60.0  # cap   discount at  60% (deep value)
 
 # Piecewise bands: (raw_lo, raw_hi, score_lo, score_hi).
-# Assumed at AAA = 4.4%; scaled by SCORE_AAA_REFERENCE/aaa_yield at runtime.
+# Assumed at AAA = 4.4%; scaled by aaa_yield/SCORE_AAA_REFERENCE at runtime.
 # Negative discount (stock above buy price) → low-but-nonzero score; the
 # Lynch/Graham framework already signals "Avoid" — discount adds texture, not a veto.
 SCORE_DISC_BANDS     = [       # [ASSUMED] — no empirical anchor; monitor in Phase 7
@@ -302,13 +302,25 @@ SCORE_ALTMAN_BANDS = [         # [ASSUMED] — no empirical anchor; monitor in P
 ]
 
 # ── DCF config ────────────────────────────────────────────────────────────────
-DCF_ERP                 = 5.5   # [ASSUMED] equity risk premium % (config-overridable)
-DCF_TERMINAL_GROWTH_CAP = 3.0   # [ASSUMED] cap terminal growth at nominal GDP %
+DCF_ERP                 = 5.5   # [ASSUMED] mature-market equity risk premium %
+DCF_TERMINAL_GROWTH_CAP = 3.0   # [ASSUMED] maximum perpetual nominal growth %
+DCF_FORECAST_YEARS      = 5
+DCF_INITIAL_GROWTH_FLOOR = -20.0
+DCF_INITIAL_GROWTH_CAP   = 15.0
+DCF_DEFAULT_TAX_RATE     = 0.21
+DCF_BETA_FLOOR           = 0.50
+DCF_BETA_CAP             = 2.00
+DCF_SENSITIVITY_WACC_STEP = 0.01
+DCF_SENSITIVITY_GROWTH_STEP = 0.005
+DCF_MIN_WACC_RISK_FREE_SPREAD_PCT = 2.5
+DCF_MIN_WACC_TERMINAL_SPREAD_PCT = 4.0
+DCF_HIGH_TERMINAL_VALUE_PCT = 85.0
+DCF_HIGH_DEBT_WEIGHT = 0.50
 DCF_EXCLUDED_SECTORS    = {"Financial Services", "Real Estate"}
 ALTMAN_EXCLUDED_SECTORS = {"Financial Services"}
 # [ASSUMED] Lower bound on the reconciled growth g before it reaches the DCF
 # helpers. No empirical anchor; -50% matches the reverse-DCF search lower
-# bound already used in _compute_dcf_reverse (lo=-50.0). Floors distressed-EPS
+# bound used by the legacy discounted-earnings diagnostic. Floors distressed-EPS
 # growth so (1+g) stays positive; forward and reverse DCF share this bound.
 # Calibrate in a later tuning phase.
 DCF_GROWTH_FLOOR = -50.0
@@ -409,6 +421,25 @@ def _recency_multiplier(weeks_since_low: float | None) -> float:
     return SCORE_RECENCY_FLOOR + t * (1.0 - SCORE_RECENCY_FLOOR)
 
 
+def _trap_reasons(
+    debt_equity: float | None,
+    current_ratio: float | None,
+    eps_stability: int | None,
+    fcf_per_share: float | None,
+) -> list:
+    """Return explicit research warnings for each present threshold breach."""
+    reasons = []
+    if debt_equity is not None and debt_equity > TRAP_MAX_DE:
+        reasons.append("High leverage")
+    if current_ratio is not None and current_ratio < TRAP_MIN_CR:
+        reasons.append("Weak liquidity")
+    if eps_stability is not None and eps_stability == 0:
+        reasons.append("Unstable earnings")
+    if fcf_per_share is not None and fcf_per_share < 0:
+        reasons.append("Negative FCF")
+    return reasons
+
+
 def trap_gate(
     debt_equity: float | None,
     current_ratio: float | None,
@@ -443,7 +474,9 @@ def trap_gate(
     if fcf_per_share is not None:
         checks.append(fcf_per_share < 0)
 
-    is_trap = any(checks)
+    is_trap = bool(_trap_reasons(
+        debt_equity, current_ratio, eps_stability, fcf_per_share
+    ))
     coverage_fraction = len(checks) / 4  # 4 possible gate inputs
     return is_trap, coverage_fraction
 
@@ -512,13 +545,13 @@ def overall_score(
       D-01b — genuinely None values → averaged over present within pillar.
       D-04  — Piotroski and Altman absent → 50.0 (neutral), NOT avg-over-present skip.
       D-02  — pillars renormalized over present pillars (avg-over-present at pillar level).
-      D-06  — yield-based discount thresholds scaled by SCORE_AAA_REFERENCE/aaa_yield.
+      D-06  — discount thresholds scaled by aaa_yield/SCORE_AAA_REFERENCE.
     """
 
     # ── VALUE PILLAR ──────────────────────────────────────────────────────────
-    # Rate-relativization: scale discount band breakpoints by reference/live yield.
+    # Rate-relativization: scale discount band breakpoints by live/reference yield.
     # When AAA yield is high, a 15% discount is less impressive → thresholds scale up.
-    rate_scale = SCORE_AAA_REFERENCE / aaa_yield if aaa_yield > 0 else 1.0
+    rate_scale = aaa_yield / SCORE_AAA_REFERENCE if aaa_yield > 0 else 1.0
 
     def _scaled_disc_bands():
         """Return SCORE_DISC_BANDS with raw_lo/raw_hi scaled by the rate factor."""
@@ -777,7 +810,7 @@ def fetch_dow30() -> set:
 def fetch_nasdaq100() -> set:
     """Scrape current Nasdaq-100 constituents from Wikipedia."""
     log.info("Fetching Nasdaq-100 constituents from Wikipedia...")
-    tables = _wiki_tables("https://en.wikipedia.org/wiki/Nasdaq-100")
+    tables = _wiki_tables("https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies")
     for t in tables:
         if "Ticker" in t.columns:
             tickers = set(t["Ticker"].str.replace(".", "-", regex=False).tolist())
@@ -786,11 +819,43 @@ def fetch_nasdaq100() -> set:
     raise ValueError("Could not find Nasdaq-100 constituents table on Wikipedia.")
 
 
+def _cached_index_members(index_name: str) -> set:
+    """Return the last published members for one index, or an empty set."""
+    results_path = Path("docs/data/results.json")
+    try:
+        payload = json.loads(results_path.read_text(encoding="utf-8"))
+        members = {
+            str(row.get("Ticker", "")).strip()
+            for row in payload.get("rows", [])
+            if index_name in {
+                part.strip() for part in str(row.get("Indexes", "")).split(",")
+            }
+        }
+        return {ticker for ticker in members if ticker}
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def _fetch_index_with_fallback(index_name: str, fetcher) -> set:
+    """Fetch current members, falling back to the last published membership."""
+    try:
+        return fetcher()
+    except Exception as exc:
+        cached = _cached_index_members(index_name)
+        if cached:
+            log.warning(
+                f"{index_name} live constituent fetch failed ({exc}); "
+                f"using {len(cached)} cached members from the last published dataset"
+            )
+            return cached
+        raise
+
+
 def get_universe() -> pd.DataFrame:
     """Return a deduplicated DataFrame with columns: ticker, indexes."""
-    sp500   = fetch_sp500()
-    dow30   = fetch_dow30()
-    nasdaq  = fetch_nasdaq100()
+    sp500   = _fetch_index_with_fallback("S&P500", fetch_sp500)
+    dow30   = _fetch_index_with_fallback("Dow30", fetch_dow30)
+    nasdaq  = _fetch_index_with_fallback("Nasdaq100", fetch_nasdaq100)
     all_tickers = sp500 | dow30 | nasdaq
 
     rows = []
@@ -812,12 +877,26 @@ def get_universe() -> pd.DataFrame:
 
 def fetch_aaa_yield() -> float:
     """Fetch the latest Moody's AAA corporate bond yield from FRED."""
+    if not FRED_API_KEY:
+        raise RuntimeError("FRED_API_KEY is required to fetch market rates")
     log.info("Fetching AAA yield from FRED...")
     fred = Fred(api_key=FRED_API_KEY)
     series = fred.get_series(FRED_AAA_SERIES)
     yield_val = float(series.dropna().iloc[-1])
     log.info(f"  → AAA yield: {yield_val:.2f}%")
     return yield_val
+
+
+def fetch_risk_free_rate() -> float:
+    """Fetch the latest 10-year Treasury constant-maturity rate from FRED."""
+    if not FRED_API_KEY:
+        raise RuntimeError("FRED_API_KEY is required to fetch market rates")
+    log.info("Fetching 10-year Treasury rate from FRED...")
+    fred = Fred(api_key=FRED_API_KEY)
+    series = fred.get_series(FRED_RISK_FREE_SERIES)
+    rate = float(series.dropna().iloc[-1])
+    log.info(f"  → 10-year Treasury rate: {rate:.2f}%")
+    return rate
 
 
 # ═════════════════════════════════════════════
@@ -841,18 +920,39 @@ def get_finnhub_metrics(ticker: str) -> dict:
     Fetch the full metric bundle from Finnhub stock/metric endpoint.
     Returns the raw metric dict, or empty dict on failure.
     """
+    if not FINNHUB_API_KEY:
+        raise RuntimeError("FINNHUB_API_KEY is required to fetch fundamentals")
     try:
         r = requests.get(
             f"{FINNHUB_BASE}/stock/metric",
             params={"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY},
             timeout=15,
         )
+        if r.status_code in (401, 403):
+            raise RuntimeError(
+                f"Finnhub authentication failed with HTTP {r.status_code}; "
+                "refresh FINNHUB_API_KEY before running the screener"
+            )
         if r.status_code == 200:
             return r.json().get("metric", {})
         log.warning(f"Finnhub {r.status_code} for {ticker}")
+    except RuntimeError:
+        raise
     except Exception as e:
         log.warning(f"Finnhub error for {ticker}: {e}")
     return {}
+
+
+def _validate_finnhub_access() -> None:
+    """Fail before the universe run when Finnhub cannot return a normal metric bundle."""
+    log.info("Validating Finnhub access...")
+    metrics = get_finnhub_metrics("AAPL")
+    if not metrics:
+        raise RuntimeError(
+            "Finnhub preflight returned no metrics for AAPL; refusing to run with "
+            "silently degraded provider coverage"
+        )
+    log.info("  → Finnhub access validated")
 
 
 def _safe_float(v) -> float | None:
@@ -887,10 +987,24 @@ EBIT_LABELS = [
     "Total Operating Income As Reported",
 ]
 
+INTEREST_EXPENSE_LABELS = [
+    "Interest Expense Non Operating",
+    "Interest Expense",
+    "Interest And Debt Expense",
+]
+
+TAX_PROVISION_LABELS = [
+    "Tax Provision",
+    "Income Tax Expense",
+]
+
+PRETAX_INCOME_LABELS = [
+    "Pretax Income",
+    "Income Before Tax",
+]
+
 TOTAL_DEBT_LABELS = [
     "Total Debt",
-    "Long Term Debt And Capital Lease Obligation",
-    "Long Term Debt",
 ]
 
 CURRENT_DEBT_LABELS = [
@@ -916,6 +1030,11 @@ SHARES_LABELS = [
     "Ordinary Shares Number",
     "Share Issued",
     "Common Stock Shares Outstanding",
+]
+
+DILUTED_SHARES_LABELS = [
+    "Diluted Average Shares",
+    "Diluted Average Shares Outstanding",
 ]
 
 # ── Phase 7 yfinance candidate label lists ────────────────────────────────────
@@ -999,13 +1118,145 @@ def _yf_row_prev(df, labels) -> float | None:
     return None
 
 
-def _dcf_wacc(aaa_yield_pct: float) -> float:
+def _extract_total_debt(balance_sheet) -> float | None:
+    """Use aggregate total debt when present; otherwise sum current and long-term debt."""
+    aggregate = _yf_row(balance_sheet, TOTAL_DEBT_LABELS)
+    if aggregate is not None:
+        return aggregate
+
+    long_term = _yf_row(balance_sheet, LONG_TERM_DEBT_LABELS)
+    current = _yf_row(balance_sheet, CURRENT_DEBT_LABELS)
+    if long_term is None and current is None:
+        return None
+    return (long_term or 0.0) + (current or 0.0)
+
+
+def _extract_total_debt_prev(balance_sheet) -> float | None:
+    """Prior-year counterpart to _extract_total_debt."""
+    aggregate = _yf_row_prev(balance_sheet, TOTAL_DEBT_LABELS)
+    if aggregate is not None:
+        return aggregate
+
+    long_term = _yf_row_prev(balance_sheet, LONG_TERM_DEBT_LABELS)
+    current = _yf_row_prev(balance_sheet, CURRENT_DEBT_LABELS)
+    if long_term is None and current is None:
+        return None
+    return (long_term or 0.0) + (current or 0.0)
+
+
+def _effective_tax_rate(income_statement) -> float:
+    """Derive a bounded effective tax rate; fall back to the configured rate."""
+    tax = _yf_row(income_statement, TAX_PROVISION_LABELS)
+    pretax = _yf_row(income_statement, PRETAX_INCOME_LABELS)
+    if tax is None or pretax is None or pretax <= 0:
+        return DCF_DEFAULT_TAX_RATE
+    return _winsorize(tax / pretax, 0.0, 0.35)
+
+
+def _currency_mismatch(price_currency, financial_currency) -> bool:
+    """Return True when quoted price and reported financials use different currencies."""
+    if not price_currency or not financial_currency:
+        return False
+    return str(price_currency).strip().upper() != str(financial_currency).strip().upper()
+
+
+def _apply_screen_wacc_guardrail(
+    calculated_wacc,
+    risk_free_rate_pct,
+    terminal_growth_pct,
+) -> dict:
+    """Apply transparent screen-level floors to unstable low-WACC estimates."""
+    risk_free_floor = (
+        risk_free_rate_pct + DCF_MIN_WACC_RISK_FREE_SPREAD_PCT
+    ) / 100.0
+    terminal_floor = (
+        terminal_growth_pct + DCF_MIN_WACC_TERMINAL_SPREAD_PCT
+    ) / 100.0
+    floor = max(risk_free_floor, terminal_floor)
+    guarded_wacc = max(calculated_wacc, floor)
+    return {
+        "wacc": guarded_wacc,
+        "unfloored_wacc": calculated_wacc,
+        "wacc_floor": floor,
+        "floor_applied": guarded_wacc > calculated_wacc + 1e-12,
+    }
+
+
+def _discounted_earnings_rate(aaa_yield_pct: float) -> float:
     """
-    WACC as a decimal: (AAA yield % + DCF_ERP %) / 100.
-    Uses the module-level DCF_ERP config constant (default 5.5%).
+    Discount rate for the legacy discounted-earnings diagnostic.
+
+    This is deliberately not called WACC: it has no beta, debt weighting, or
+    company-specific cost of debt.
     internal — for tests only.
     """
     return (aaa_yield_pct + DCF_ERP) / 100.0
+
+
+def _compute_base_fcff(ocf, capex, interest_expense, tax_rate) -> float | None:
+    """Convert reported operating cash flow to a screen-grade FCFF estimate."""
+    if ocf is None or capex is None:
+        return None
+    interest = abs(interest_expense) if interest_expense is not None else 0.0
+    capex_outflow = abs(capex)
+    return ocf - capex_outflow + interest * (1.0 - tax_rate)
+
+
+def _estimate_screen_wacc(
+    risk_free_rate_pct,
+    aaa_yield_pct,
+    beta,
+    market_cap,
+    total_debt,
+    prior_total_debt,
+    interest_expense,
+    tax_rate,
+) -> dict | None:
+    """Estimate a transparent screen-grade WACC and its component assumptions."""
+    if (
+        risk_free_rate_pct is None
+        or aaa_yield_pct is None
+        or market_cap is None
+        or market_cap <= 0
+        or total_debt is None
+        or total_debt < 0
+    ):
+        return None
+
+    beta_used = _winsorize(
+        beta if beta is not None and beta > 0 else 1.0,
+        DCF_BETA_FLOOR,
+        DCF_BETA_CAP,
+    )
+    cost_of_equity = (risk_free_rate_pct + beta_used * DCF_ERP) / 100.0
+
+    observed_cost = None
+    debt_base = total_debt
+    if prior_total_debt is not None and prior_total_debt >= 0:
+        debt_base = (total_debt + prior_total_debt) / 2.0
+    if interest_expense is not None and debt_base > 0:
+        observed_cost = abs(interest_expense) / debt_base
+        if observed_cost <= 0 or observed_cost > 0.30:
+            observed_cost = None
+
+    aaa_cost = max(0.0, aaa_yield_pct / 100.0)
+    pre_tax_cost_of_debt = max(aaa_cost, observed_cost or 0.0)
+    after_tax_cost_of_debt = pre_tax_cost_of_debt * (1.0 - tax_rate)
+
+    total_capital = market_cap + total_debt
+    equity_weight = market_cap / total_capital
+    debt_weight = total_debt / total_capital
+    wacc = equity_weight * cost_of_equity + debt_weight * after_tax_cost_of_debt
+
+    return {
+        "wacc": wacc,
+        "beta": beta_used,
+        "cost_of_equity": cost_of_equity,
+        "pre_tax_cost_of_debt": pre_tax_cost_of_debt,
+        "equity_weight": equity_weight,
+        "debt_weight": debt_weight,
+        "observed_cost_of_debt": observed_cost,
+    }
 
 
 def _compute_price_signals(closes, price) -> dict:
@@ -1369,18 +1620,18 @@ def _compute_altman_z(bs_curr, inc_curr) -> float | None:
     return 6.56 * X1 + 3.26 * X2 + 6.72 * X3 + 1.05 * X4
 
 
-def _compute_dcf_forward(
+def _compute_discounted_earnings_forward(
     eps,
     g_cagr_pct: float,
     aaa_yield_pct: float,
     price: float,
 ) -> tuple:
     """
-    Compute two-stage DCF intrinsic value and discount percentage.
+    Compute the legacy two-stage discounted-earnings value and discount percentage.
 
-    Stage 1: 5 years of EPS at g_cagr growth rate, discounted at WACC.
+    Stage 1: 5 years of EPS at g_cagr growth, discounted at the diagnostic rate.
     Stage 2: Gordon Growth terminal value using g_terminal = min(g_cagr, DCF_TERMINAL_GROWTH_CAP/100).
-    WACC = _dcf_wacc(aaa_yield_pct) = (aaa_yield_pct + DCF_ERP) / 100.
+    Discount rate = AAA yield + configured equity premium.
 
     Returns (intrinsic_value, discount_pct) where discount_pct = (1 - price/intrinsic)*100.
     Positive discount = cheap (price below intrinsic). Negative = overpriced.
@@ -1392,13 +1643,14 @@ def _compute_dcf_forward(
     if eps is None or eps <= 0:
         return (None, None)
 
-    wacc = _dcf_wacc(aaa_yield_pct)
+    discount_rate = _discounted_earnings_rate(aaa_yield_pct)
     g = g_cagr_pct / 100.0
     g_terminal = min(g, DCF_TERMINAL_GROWTH_CAP / 100.0)
 
-    if g_terminal >= wacc:
+    if g_terminal >= discount_rate:
         raise ValueError(
-            f"DCF config error: terminal_growth ({g_terminal:.4f}) >= WACC ({wacc:.4f}). "
+            f"Discounted-earnings config error: terminal_growth ({g_terminal:.4f}) "
+            f">= discount rate ({discount_rate:.4f}). "
             f"Increase DCF_ERP or reduce DCF_TERMINAL_GROWTH_CAP."
         )
 
@@ -1407,11 +1659,11 @@ def _compute_dcf_forward(
     eps_t = eps
     for t in range(1, 6):
         eps_t = eps_t * (1 + g)
-        pv_stage1 += eps_t / (1 + wacc) ** t
+        pv_stage1 += eps_t / (1 + discount_rate) ** t
 
     # Stage 2: terminal value (Gordon Growth Model) discounted to present
-    tv = eps_t * (1 + g_terminal) / (wacc - g_terminal)
-    pv_tv = tv / (1 + wacc) ** 5
+    tv = eps_t * (1 + g_terminal) / (discount_rate - g_terminal)
+    pv_tv = tv / (1 + discount_rate) ** 5
 
     intrinsic = pv_stage1 + pv_tv
     discount_pct = (1 - price / intrinsic) * 100
@@ -1419,14 +1671,13 @@ def _compute_dcf_forward(
     return (intrinsic, discount_pct)
 
 
-def _compute_dcf_reverse(
+def _compute_discounted_earnings_reverse(
     price: float,
     eps,
     aaa_yield_pct: float,
-    g_stage1_pct: float,
 ) -> tuple:
     """
-    Reverse DCF: find the implied growth rate that makes the DCF intrinsic value
+    Reverse discounted earnings: find the implied growth rate that makes the value
     equal the current market price, using scipy.optimize.brentq.
 
     Returns (implied_growth_pct, True) when brentq converges.
@@ -1443,22 +1694,22 @@ def _compute_dcf_reverse(
     if eps is None or eps <= 0:
         return (None, False)
 
-    wacc = _dcf_wacc(aaa_yield_pct)
+    discount_rate = _discounted_earnings_rate(aaa_yield_pct)
 
     def _dcf_value(g_pct: float) -> float:
         """Returns DCF intrinsic value at g_pct% growth minus current price."""
         g = g_pct / 100.0
         g_term = min(g, DCF_TERMINAL_GROWTH_CAP / 100.0)
         # Guard: clamp to prevent Gordon Growth denominator from going to zero
-        if g_term >= wacc:
-            g_term = wacc - 0.001
+        if g_term >= discount_rate:
+            g_term = discount_rate - 0.001
         pv = 0.0
         eps_t = eps
         for t in range(1, 6):
             eps_t = eps_t * (1 + g)
-            pv += eps_t / (1 + wacc) ** t
-        tv = eps_t * (1 + g_term) / (wacc - g_term)
-        pv += tv / (1 + wacc) ** 5
+            pv += eps_t / (1 + discount_rate) ** t
+        tv = eps_t * (1 + g_term) / (discount_rate - g_term)
+        pv += tv / (1 + discount_rate) ** 5
         return pv - price
 
     try:
@@ -1467,6 +1718,193 @@ def _compute_dcf_reverse(
         if _dcf_value(lo) * _dcf_value(hi) > 0:
             return (None, False)
         root = brentq(_dcf_value, lo, hi, xtol=1e-4, maxiter=100)
+        return (round(root, 2), True)
+    except (ValueError, RuntimeError):
+        return (None, False)
+
+
+def _project_fcff_enterprise_value(
+    base_fcff: float,
+    initial_growth_pct: float,
+    wacc: float,
+    terminal_growth_pct: float,
+    years: int = DCF_FORECAST_YEARS,
+) -> tuple:
+    """Project FCFF with a linear growth fade and return EV plus terminal share."""
+    if base_fcff is None or base_fcff <= 0 or years < 1:
+        return (None, None)
+
+    terminal_growth = terminal_growth_pct / 100.0
+    if wacc <= terminal_growth:
+        raise ValueError(
+            f"FCFF DCF requires WACC ({wacc:.4f}) above terminal growth "
+            f"({terminal_growth:.4f})"
+        )
+
+    initial_growth = initial_growth_pct / 100.0
+    fcff_t = base_fcff
+    pv_explicit = 0.0
+    for year in range(1, years + 1):
+        fade = (year - 1) / max(1, years - 1)
+        growth_t = initial_growth + (terminal_growth - initial_growth) * fade
+        fcff_t *= 1.0 + growth_t
+        pv_explicit += fcff_t / (1.0 + wacc) ** year
+
+    terminal_value = fcff_t * (1.0 + terminal_growth) / (wacc - terminal_growth)
+    pv_terminal = terminal_value / (1.0 + wacc) ** years
+    enterprise_value = pv_explicit + pv_terminal
+    if enterprise_value <= 0:
+        return (None, None)
+    terminal_share_pct = pv_terminal / enterprise_value * 100.0
+    return (enterprise_value, terminal_share_pct)
+
+
+def _fcff_value_per_share(
+    base_fcff,
+    initial_growth_pct,
+    wacc,
+    terminal_growth_pct,
+    cash,
+    total_debt,
+    diluted_shares,
+) -> tuple:
+    """Bridge projected enterprise value to common-equity value per share."""
+    if (
+        cash is None
+        or total_debt is None
+        or diluted_shares is None
+        or diluted_shares <= 0
+    ):
+        return (None, None, None)
+
+    enterprise_value, terminal_share_pct = _project_fcff_enterprise_value(
+        base_fcff,
+        initial_growth_pct,
+        wacc,
+        terminal_growth_pct,
+    )
+    if enterprise_value is None:
+        return (None, None, None)
+
+    equity_value = enterprise_value + cash - total_debt
+    if equity_value <= 0:
+        return (None, enterprise_value, terminal_share_pct)
+    return (equity_value / diluted_shares, enterprise_value, terminal_share_pct)
+
+
+def _compute_fcff_dcf(
+    base_fcff,
+    initial_growth_pct,
+    wacc,
+    terminal_growth_pct,
+    cash,
+    total_debt,
+    diluted_shares,
+    price,
+) -> dict | None:
+    """Compute a screen-grade FCFF DCF, EV bridge, and paired valuation range."""
+    if initial_growth_pct is None or price is None or price <= 0:
+        return None
+
+    growth_used = _winsorize(
+        initial_growth_pct,
+        DCF_INITIAL_GROWTH_FLOOR,
+        DCF_INITIAL_GROWTH_CAP,
+    )
+    value, enterprise_value, terminal_share_pct = _fcff_value_per_share(
+        base_fcff,
+        growth_used,
+        wacc,
+        terminal_growth_pct,
+        cash,
+        total_debt,
+        diluted_shares,
+    )
+    if value is None:
+        return None
+
+    low_value, _, _ = _fcff_value_per_share(
+        base_fcff,
+        max(DCF_INITIAL_GROWTH_FLOOR, growth_used - 2.0),
+        wacc + DCF_SENSITIVITY_WACC_STEP,
+        max(0.0, terminal_growth_pct - DCF_SENSITIVITY_GROWTH_STEP * 100.0),
+        cash,
+        total_debt,
+        diluted_shares,
+    )
+    high_wacc = wacc - DCF_SENSITIVITY_WACC_STEP
+    high_terminal_growth = min(
+        DCF_TERMINAL_GROWTH_CAP,
+        terminal_growth_pct + DCF_SENSITIVITY_GROWTH_STEP * 100.0,
+    )
+    if high_wacc <= high_terminal_growth / 100.0:
+        high_value = None
+    else:
+        high_value, _, _ = _fcff_value_per_share(
+            base_fcff,
+            min(DCF_INITIAL_GROWTH_CAP, growth_used + 2.0),
+            high_wacc,
+            high_terminal_growth,
+            cash,
+            total_debt,
+            diluted_shares,
+        )
+
+    return {
+        "intrinsic_value": value,
+        "discount_pct": (1.0 - price / value) * 100.0,
+        "enterprise_value": enterprise_value,
+        "terminal_value_pct": terminal_share_pct,
+        "growth_used_pct": growth_used,
+        "value_low": low_value,
+        "value_high": high_value,
+    }
+
+
+def _compute_fcff_reverse_dcf(
+    price,
+    base_fcff,
+    wacc,
+    terminal_growth_pct,
+    cash,
+    total_debt,
+    diluted_shares,
+) -> tuple:
+    """Solve for the initial FCFF growth rate implied by the current equity price."""
+    if (
+        price is None
+        or price <= 0
+        or base_fcff is None
+        or base_fcff <= 0
+        or cash is None
+        or total_debt is None
+        or diluted_shares is None
+        or diluted_shares <= 0
+    ):
+        return (None, False)
+
+    target_enterprise_value = price * diluted_shares + total_debt - cash
+    if target_enterprise_value <= 0:
+        return (None, False)
+
+    def objective(growth_pct: float) -> float:
+        enterprise_value, _ = _project_fcff_enterprise_value(
+            base_fcff,
+            growth_pct,
+            wacc,
+            terminal_growth_pct,
+        )
+        if enterprise_value is None:
+            return -target_enterprise_value
+        return enterprise_value - target_enterprise_value
+
+    try:
+        lo, hi = -50.0, 50.0
+        lo_value = objective(lo)
+        hi_value = objective(hi)
+        if lo_value * hi_value > 0:
+            return (None, False)
+        root = brentq(objective, lo, hi, xtol=1e-4, maxiter=100)
         return (round(root, 2), True)
     except (ValueError, RuntimeError):
         return (None, False)
@@ -1501,11 +1939,19 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "ocf":                None,
         "capex":              None,
         "ebit":               None,
+        "interest_expense":   None,
+        "tax_rate":           DCF_DEFAULT_TAX_RATE,
         "total_debt":         None,
+        "prior_total_debt":   None,
         "cash":               None,
         "equity":             None,
         "shares_now":         None,
         "shares_prev":        None,
+        "diluted_shares":     None,
+        "market_cap":         None,
+        "beta":               None,
+        "price_currency":     None,
+        "financial_currency": None,
         # Phase 7 additions: raw DataFrames for Piotroski/Altman (newest-first columns)
         "income_stmt_df":     None,
         "balance_sheet_df":   None,
@@ -1517,11 +1963,18 @@ def get_yf_price_and_history(ticker: str) -> dict:
         # ── Price ───────────────────────────────────────────────────────
         fi = t.fast_info
         result["price"] = getattr(fi, "last_price", None)
+        result["market_cap"] = _safe_float(getattr(fi, "market_cap", None))
         price = result["price"]
 
         # ── Sector — guard .info separately; it may raise on delisted tickers ──
         try:
-            result["sector"] = t.info.get("sector")
+            info = t.info or {}
+            result["sector"] = info.get("sector")
+            result["beta"] = _safe_float(info.get("beta"))
+            result["price_currency"] = info.get("currency")
+            result["financial_currency"] = info.get("financialCurrency")
+            if result["market_cap"] is None:
+                result["market_cap"] = _safe_float(info.get("marketCap"))
         except Exception:
             result["sector"] = None
 
@@ -1535,6 +1988,9 @@ def get_yf_price_and_history(ticker: str) -> dict:
                     break
             # EBIT from income statement (newest-first — NOT re-sorted here; use raw)
             result["ebit"] = _yf_row(t.income_stmt, EBIT_LABELS)
+            result["interest_expense"] = _yf_row(t.income_stmt, INTEREST_EXPENSE_LABELS)
+            result["tax_rate"] = _effective_tax_rate(t.income_stmt)
+            result["diluted_shares"] = _yf_row(t.income_stmt, DILUTED_SHARES_LABELS)
 
         # ── Dividend history ────────────────────────────────────────────
         divs = t.dividends
@@ -1566,9 +2022,8 @@ def get_yf_price_and_history(ticker: str) -> dict:
         # ── Balance sheet — debt, cash, equity, shares ──────────────────
         bs = t.balance_sheet
         if bs is not None and not bs.empty:
-            td_long    = _yf_row(bs, TOTAL_DEBT_LABELS) or 0
-            td_current = _yf_row(bs, CURRENT_DEBT_LABELS) or 0
-            result["total_debt"] = td_long + td_current
+            result["total_debt"] = _extract_total_debt(bs)
+            result["prior_total_debt"] = _extract_total_debt_prev(bs)
             result["cash"]       = _yf_row(bs, CASH_LABELS)
             result["equity"]     = _yf_row(bs, EQUITY_LABELS)
             # Shares outstanding: newest (col 0) and prior year (col 1)
@@ -1634,6 +2089,8 @@ def get_combined_data(ticker: str) -> dict:
     fh_mktcap = _safe_float(fh.get("marketCapitalization"))
     if fh_mktcap is not None:
         mkt_cap_b = fh_mktcap / 1000.0  # millions → billions
+    elif yf_data["market_cap"] is not None:
+        mkt_cap_b = yf_data["market_cap"] / 1e9
 
     # ── Balance sheet ratios (Finnhub direct) ───────────────────────
     current_ratio = _safe_float(fh.get("currentRatioAnnual") or fh.get("currentRatioQuarterly"))
@@ -1688,6 +2145,7 @@ def get_combined_data(ticker: str) -> dict:
 
     return {
         "price":            price,
+        "finnhub_ok":       bool(fh),
         "market_cap_b":     mkt_cap_b,
         "annual_eps":       yf_data["annual_eps"],      # historical list for defensive checks
         "annual_dividends": yf_data["annual_dividends"],
@@ -1699,6 +2157,19 @@ def get_combined_data(ticker: str) -> dict:
         "book_value_ps":    book_value_ps,
         "pb_ratio":         pb_ratio,
         "fcf_per_share":    fcf_per_share,              # FCF sign for Plan 02 trap gate (D-04)
+        # Screen-grade FCFF DCF inputs
+        "ocf":                  yf_data["ocf"],
+        "capex":                yf_data["capex"],
+        "interest_expense":     yf_data["interest_expense"],
+        "tax_rate":             yf_data["tax_rate"],
+        "total_debt":           yf_data["total_debt"],
+        "prior_total_debt":     yf_data["prior_total_debt"],
+        "cash":                 yf_data["cash"],
+        "shares_now":           yf_data["shares_now"],
+        "diluted_shares":       yf_data["diluted_shares"],
+        "beta":                 yf_data["beta"],
+        "price_currency":       yf_data["price_currency"],
+        "financial_currency":   yf_data["financial_currency"],
         # Phase 6 additions — sector + price signals
         "sector":                yf_data["sector"],
         "dist_52w_high":         yf_data["dist_52w_high"],
@@ -2023,12 +2494,16 @@ def combined_score(lynch_discount: float | None, graham_discount: float | None) 
 # STEP 5 — PROCESS ALL TICKERS
 # ═════════════════════════════════════════════
 
-def process_ticker(ticker: str, aaa_yield: float) -> dict:
+def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None = None) -> dict:
     """Run the full pipeline for one ticker. Returns a flat result dict."""
-    row = {"Ticker": ticker}
+    row = {"Ticker": ticker, "Error": None}
+
+    def _r2(value):
+        return round(float(value), 2) if value is not None else None
 
     # --- Fetch all data (yfinance price + history, Finnhub fundamentals) ---
     fund = get_combined_data(ticker)
+    row["Provider_Finnhub_OK"] = bool(fund.get("finnhub_ok"))
 
     # ── Price ───────────────────────────────────────────────────────
     price = fund["price"]
@@ -2041,8 +2516,8 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
 
     # ── EPS ─────────────────────────────────────────────────────────
     eps = fund["ttm_eps"]
-    if not eps or eps <= 0:
-        log.warning(f"{ticker}: no usable EPS")
+    if eps is None:
+        log.warning(f"{ticker}: EPS data is missing")
         row["Error"] = "No EPS"
         return row
     row["EPS_TTM"]    = round(float(eps), 4)
@@ -2056,22 +2531,26 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     # ── Growth — Finnhub 5Y CAGR, reality-anchored to realized EPS CAGR (Bug B) ──
     # Reconcile against the realized CAGR so an inflated Finnhub growth can't make a
     # flat/declining-EPS stock look like a 25% grower; falls back to computed CAGR
-    # when Finnhub is absent. Negative reconciled growth flows to lynch_metrics() as
-    # g <= 0 and is intercepted to WORST_DISCOUNT below (D-01) — not floored or dropped.
+    # when Finnhub is absent. Negative reconciled growth is intercepted below and
+    # routed to WORST_DISCOUNT (D-01) — not floored or dropped.
     g = _reconcile_growth(fund["growth_pct"], compute_growth_5yr_cagr(fund["annual_eps"]))
-    if g is None:
-        # Truly absent growth data — no basis for valuation (D-01b: genuinely missing,
-        # distinct from a present-but-negative value which routes to WORST_DISCOUNT below).
-        log.info(f"{ticker}: growth not computable, skipping valuation")
-        row["Error"] = "Growth N/A"
-        return row
-    g = min(g, GROWTH_CAP)
+    if g is not None:
+        g = min(g, GROWTH_CAP)
     # D-01: negative/zero growth is present-but-terrible; do NOT floor or drop.
-    # lynch_metrics() will return {"error": ...} for g <= 0, which is intercepted
-    # below and routes to WORST_DISCOUNT so the ticker still ranks (at the bottom).
-    row["Growth_g_Pct"] = round(g, 2)
+    # Lynch/Graham are skipped for g <= 0 and route directly to WORST_DISCOUNT,
+    # so the ticker remains available for other diagnostics.
+    row["Growth_g_Pct"] = round(g, 2) if g is not None else None
     row["AAA_Yield"]    = aaa_yield
     row["MarketCap_B"]  = round(mkt_cap_b, 2) if mkt_cap_b else None
+
+    valuation_warnings = []
+    if eps <= 0:
+        valuation_warnings.append("Non-positive EPS")
+    if g is None:
+        valuation_warnings.append("Growth unavailable")
+    elif g <= 0:
+        valuation_warnings.append("Non-positive growth")
+    row["Valuation_Input_Warning"] = "; ".join(valuation_warnings) or None
 
     # ── P/B ratio — Finnhub direct, or compute from BVPS ────────────
     pb = fund["pb_ratio"]
@@ -2087,18 +2566,24 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     # ── Lynch ───────────────────────────────────────────────────────
     # D-01: if negative/zero EPS or growth causes an error-return, retain the row
     # with WORST_DISCOUNT so it ranks at the bottom rather than being dropped.
-    lm = lynch_metrics(price, eps, g, dy)
-    if "error" in lm:
-        log.info(f"{ticker}: Lynch formula error ({lm['error']}), routing to WORST_DISCOUNT")
+    if eps <= 0 or g is None or g <= 0:
         lm = {"Lynch_Discount_Pct": WORST_DISCOUNT}
+    else:
+        lm = lynch_metrics(price, eps, g, dy)
+        if "error" in lm:
+            log.info(f"{ticker}: Lynch formula error ({lm['error']}), routing to WORST_DISCOUNT")
+            lm = {"Lynch_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Lynch_{k}": v for k, v in lm.items()})
 
     # ── Graham ──────────────────────────────────────────────────────
     # D-01: same sentinel routing for Graham error returns.
-    gm = graham_metrics(price, eps, g, aaa_yield, pb)
-    if "error" in gm:
-        log.info(f"{ticker}: Graham formula error ({gm['error']}), routing to WORST_DISCOUNT")
+    if eps <= 0 or g is None or g <= 0:
         gm = {"Graham_Discount_Pct": WORST_DISCOUNT}
+    else:
+        gm = graham_metrics(price, eps, g, aaa_yield, pb)
+        if "error" in gm:
+            log.info(f"{ticker}: Graham formula error ({gm['error']}), routing to WORST_DISCOUNT")
+            gm = {"Graham_Discount_Pct": WORST_DISCOUNT}
     row.update({f"Graham_{k}": v for k, v in gm.items()})
 
     # ── Graham defensive score ───────────────────────────────────────
@@ -2138,11 +2623,23 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     # supplies only ~4 years, so it was structurally 0 and tripped the gate for EVERY
     # ticker (dead Safety pillar). Use a window-appropriate stability signal instead.
     eps_stab_for_gate = _eps_stable_for_gate(fund["annual_eps"])
+    trap_fcf_metric = (
+        fund["fcf_yield"] if fund.get("fcf_yield") is not None
+        else fund["fcf_per_share"]
+    )
     is_trap, cov_fraction = trap_gate(
         debt_equity   = fund["debt_equity"],
         current_ratio = fund["current_ratio"],
         eps_stability = eps_stab_for_gate,
-        fcf_per_share = fund["fcf_per_share"],
+        # Only the sign is used by trap_gate. Prefer the independently computed
+        # yfinance FCF yield; fall back to Finnhub FCF/share when unavailable.
+        fcf_per_share = trap_fcf_metric,
+    )
+    trap_reasons = _trap_reasons(
+        fund["debt_equity"],
+        fund["current_ratio"],
+        eps_stab_for_gate,
+        trap_fcf_metric,
     )
 
     # ── Distress signals + DCF (TRAP-03/SECTOR-02/SIGNAL-08/09/DCF-01..03) ───
@@ -2166,24 +2663,142 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
 
     altman_z = _compute_altman_z(bs_df, inc_df) if _sector_allows(fund, "altman") else None
 
-    if _sector_allows(fund, "dcf"):
-        # CR-03 / D-10: floor DCF growth so severely negative Finnhub growth can't
-        # sign-flip (1+g) into a false deep-value signal; the un-floored g still
-        # routes to WORST_DISCOUNT for Lynch/Graham above.
-        g_dcf = max(g, DCF_GROWTH_FLOOR)
+    # Preserve the former EPS projection as a clearly named diagnostic. It is not
+    # an FCFF/FCFE DCF and does not feed the DCF value sub-score.
+    discounted_earnings_value = None
+    discounted_earnings_discount = None
+    discounted_earnings_implied_growth = None
+    if _sector_allows(fund, "dcf") and eps > 0 and g is not None:
+        legacy_growth = max(g, DCF_GROWTH_FLOOR)
         try:
-            dcf_intrinsic, dcf_discount_pct = _compute_dcf_forward(eps, g_dcf, aaa_yield, price)
-            dcf_implied_growth, dcf_reverse_converged = _compute_dcf_reverse(price, eps, aaa_yield, g_dcf)
-        except ValueError as e:
-            # WR-01: terminal_growth >= WACC raises by design (stock_screener.py
-            # _compute_dcf_forward docstring). Degrade this ticker's DCF fields to
-            # None rather than aborting the entire multi-hundred-ticker run.
-            log.warning(f"DCF error for {ticker}: {e}")
-            dcf_intrinsic, dcf_discount_pct = None, None
-            dcf_implied_growth, dcf_reverse_converged = None, False
-    else:
-        dcf_intrinsic, dcf_discount_pct = None, None
-        dcf_implied_growth, dcf_reverse_converged = None, False
+            discounted_earnings_value, discounted_earnings_discount = (
+                _compute_discounted_earnings_forward(
+                    eps, legacy_growth, aaa_yield, price
+                )
+            )
+            discounted_earnings_implied_growth, _ = (
+                _compute_discounted_earnings_reverse(
+                    price, eps, aaa_yield
+                )
+            )
+        except ValueError as exc:
+            log.warning(f"Discounted-earnings error for {ticker}: {exc}")
+
+    dcf_result = None
+    dcf_implied_growth = None
+    dcf_reverse_converged = False
+    dcf_growth_gap = None
+    dcf_wacc = None
+    wacc_detail = None
+    wacc_guard = None
+    dcf_terminal_growth = None
+    dcf_price_currency = fund.get("price_currency")
+    dcf_financial_currency = fund.get("financial_currency")
+    dcf_currency_mismatch = _currency_mismatch(
+        dcf_price_currency,
+        dcf_financial_currency,
+    )
+    dcf_base_fcff = _compute_base_fcff(
+        fund.get("ocf"),
+        fund.get("capex"),
+        fund.get("interest_expense"),
+        fund.get("tax_rate", DCF_DEFAULT_TAX_RATE),
+    )
+    dcf_missing_inputs = []
+    dcf_assumption_warnings = []
+
+    if _sector_allows(fund, "dcf") and g is not None:
+        market_cap = mkt_cap_b * 1e9 if mkt_cap_b is not None else None
+        diluted_shares = fund.get("diluted_shares") or fund.get("shares_now")
+        if diluted_shares is None and market_cap is not None and price > 0:
+            diluted_shares = market_cap / price
+
+        wacc_inputs = {
+            "risk-free rate": risk_free_rate,
+            "market cap": market_cap,
+            "total debt": fund.get("total_debt"),
+            "cash": fund.get("cash"),
+            "diluted shares": diluted_shares,
+            "base FCFF": dcf_base_fcff,
+        }
+        dcf_missing_inputs = [name for name, value in wacc_inputs.items() if value is None]
+        if dcf_currency_mismatch:
+            dcf_missing_inputs.append("compatible price and financial currencies")
+            dcf_assumption_warnings.append(
+                f"Currency mismatch ({dcf_price_currency} price vs "
+                f"{dcf_financial_currency} financials); DCF excluded"
+            )
+        elif not dcf_price_currency or not dcf_financial_currency:
+            dcf_assumption_warnings.append("Currency metadata incomplete")
+        if dcf_base_fcff is not None and dcf_base_fcff <= 0:
+            dcf_assumption_warnings.append("Non-positive base FCFF")
+        if fund.get("beta") is None:
+            dcf_assumption_warnings.append("Beta unavailable; defaulted to 1.0")
+        if fund.get("interest_expense") is None and (fund.get("total_debt") or 0) > 0:
+            dcf_assumption_warnings.append("Interest expense unavailable; AAA debt cost used")
+
+        wacc_detail = _estimate_screen_wacc(
+            risk_free_rate_pct=risk_free_rate,
+            aaa_yield_pct=aaa_yield,
+            beta=fund.get("beta"),
+            market_cap=market_cap,
+            total_debt=fund.get("total_debt"),
+            prior_total_debt=fund.get("prior_total_debt"),
+            interest_expense=fund.get("interest_expense"),
+            tax_rate=fund.get("tax_rate", DCF_DEFAULT_TAX_RATE),
+        )
+        if not dcf_missing_inputs and wacc_detail is not None:
+            dcf_terminal_growth = max(0.0, min(g, DCF_TERMINAL_GROWTH_CAP))
+            wacc_guard = _apply_screen_wacc_guardrail(
+                calculated_wacc=wacc_detail["wacc"],
+                risk_free_rate_pct=risk_free_rate,
+                terminal_growth_pct=dcf_terminal_growth,
+            )
+            dcf_wacc = wacc_guard["wacc"]
+            if wacc_guard["floor_applied"]:
+                dcf_assumption_warnings.append(
+                    "WACC guardrail applied "
+                    f"({wacc_guard['unfloored_wacc'] * 100.0:.2f}% to "
+                    f"{dcf_wacc * 100.0:.2f}%)"
+                )
+            if wacc_detail["debt_weight"] > DCF_HIGH_DEBT_WEIGHT:
+                dcf_assumption_warnings.append(
+                    "High leverage makes DCF equity value highly sensitive"
+                )
+            try:
+                dcf_result = _compute_fcff_dcf(
+                    base_fcff=dcf_base_fcff,
+                    initial_growth_pct=g,
+                    wacc=dcf_wacc,
+                    terminal_growth_pct=dcf_terminal_growth,
+                    cash=fund["cash"],
+                    total_debt=fund["total_debt"],
+                    diluted_shares=diluted_shares,
+                    price=price,
+                )
+                dcf_implied_growth, dcf_reverse_converged = _compute_fcff_reverse_dcf(
+                    price=price,
+                    base_fcff=dcf_base_fcff,
+                    wacc=dcf_wacc,
+                    terminal_growth_pct=dcf_terminal_growth,
+                    cash=fund["cash"],
+                    total_debt=fund["total_debt"],
+                    diluted_shares=diluted_shares,
+                )
+                if dcf_implied_growth is not None and dcf_result is not None:
+                    dcf_growth_gap = dcf_result["growth_used_pct"] - dcf_implied_growth
+                if (
+                    dcf_result is not None
+                    and dcf_result["terminal_value_pct"] > DCF_HIGH_TERMINAL_VALUE_PCT
+                ):
+                    dcf_assumption_warnings.append(
+                        f"Terminal value exceeds {DCF_HIGH_TERMINAL_VALUE_PCT:.0f}% of EV"
+                    )
+            except ValueError as exc:
+                log.warning(f"FCFF DCF error for {ticker}: {exc}")
+
+    dcf_intrinsic = dcf_result["intrinsic_value"] if dcf_result else None
+    dcf_discount_pct = dcf_result["discount_pct"] if dcf_result else None
     dcf_cyclical_flag = (fund.get("sector") in CYCLICAL_SECTORS) and _sector_allows(fund, "dcf")
 
     # D-11: Financial Services excluded from EV/EBIT + earnings yield (None, never zero)
@@ -2228,16 +2843,44 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["score_growth"]          = scores["growth"]
     row["score_safety"]          = scores["safety"]
     row["is_trap"]               = is_trap
+    row["Trap_Reasons"]           = "; ".join(trap_reasons) or None
     row["coverage_pct"]          = scores["coverage_pct"]
 
     # Phase 7 additive columns — distress signals + DCF (diagnostic + scoring)
     row["Piotroski_F"]           = piotroski_f  # int | None (no rounding)
     row["Altman_Z"]               = round(float(altman_z), 2) if altman_z is not None else None
     row["DCF_Intrinsic_Value"]    = round(float(dcf_intrinsic), 2) if dcf_intrinsic is not None else None
+    row["DCF_Value_Low"]          = _r2(dcf_result["value_low"]) if dcf_result else None
+    row["DCF_Value_High"]         = _r2(dcf_result["value_high"]) if dcf_result else None
     row["DCF_Discount_Pct"]       = round(float(dcf_discount_pct), 2) if dcf_discount_pct is not None else None
     row["DCF_Implied_Growth"]     = round(float(dcf_implied_growth), 2) if dcf_implied_growth is not None else None
+    row["DCF_Growth_Used_Pct"]    = _r2(dcf_result["growth_used_pct"]) if dcf_result else None
+    row["DCF_Growth_Gap_Pct"]     = round(float(dcf_growth_gap), 2) if dcf_growth_gap is not None else None
+    row["DCF_WACC_Pct"]           = round(dcf_wacc * 100.0, 2) if dcf_wacc is not None else None
+    row["DCF_WACC_Unfloored_Pct"] = _r2(wacc_guard["unfloored_wacc"] * 100.0) if wacc_guard else None
+    row["DCF_WACC_Floor_Applied"] = wacc_guard["floor_applied"] if wacc_guard else False
+    row["DCF_Beta"]               = _r2(wacc_detail["beta"]) if wacc_detail else None
+    row["DCF_Cost_Equity_Pct"]    = _r2(wacc_detail["cost_of_equity"] * 100.0) if wacc_detail else None
+    row["DCF_PreTax_Cost_Debt_Pct"] = _r2(wacc_detail["pre_tax_cost_of_debt"] * 100.0) if wacc_detail else None
+    row["DCF_Debt_Weight_Pct"]    = _r2(wacc_detail["debt_weight"] * 100.0) if wacc_detail else None
+    row["DCF_Terminal_Growth_Pct"] = _r2(dcf_terminal_growth)
+    row["DCF_Terminal_Value_Pct"] = _r2(dcf_result["terminal_value_pct"]) if dcf_result else None
+    row["DCF_Base_FCFF_B"]        = _r2(dcf_base_fcff / 1e9) if dcf_base_fcff is not None else None
+    row["DCF_Price_Currency"]     = dcf_price_currency
+    row["DCF_Financial_Currency"] = dcf_financial_currency
+    row["DCF_Currency_Mismatch"]  = dcf_currency_mismatch
+    row["DCF_Method"]              = "FCFF screen-grade" if dcf_result else None
+    row["DCF_Data_Warning"]        = (
+        "; ".join(
+            (["Missing " + ", ".join(dcf_missing_inputs)] if dcf_missing_inputs else [])
+            + dcf_assumption_warnings
+        ) or None
+    )
     row["dcf_reverse_converged"]  = dcf_reverse_converged
     row["DCF_Cyclical_Flag"]      = dcf_cyclical_flag
+    row["Discounted_Earnings_Value"] = _r2(discounted_earnings_value)
+    row["Discounted_Earnings_Discount_Pct"] = _r2(discounted_earnings_discount)
+    row["Discounted_Earnings_Implied_Growth"] = _r2(discounted_earnings_implied_growth)
     row["score_piotroski_sub"]    = scores["piotroski"]
     row["score_altman_sub"]       = scores["altman"]
     row["score_dcf_discount_sub"] = scores["dcf_discount"]
@@ -2247,9 +2890,6 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     row["Sector"] = fund["sector"]
 
     # Price-distance/recency signals (SIGNAL-01/02/03, D-03)
-    def _r2(v):
-        return round(float(v), 2) if v is not None else None
-
     row["Dist_52w_High_Pct"]    = _r2(fund["dist_52w_high"])
     row["Dist_52w_Low_Pct"]     = _r2(fund["dist_52w_low"])
     row["Dist_5y_Low_Pct"]      = _r2(fund["dist_5y_low"])
@@ -2274,13 +2914,17 @@ def process_ticker(ticker: str, aaa_yield: float) -> dict:
     return row
 
 
-def run_screener(universe: pd.DataFrame, aaa_yield: float) -> pd.DataFrame:
+def run_screener(
+    universe: pd.DataFrame,
+    aaa_yield: float,
+    risk_free_rate: float | None = None,
+) -> pd.DataFrame:
     results = []
     total = len(universe)
     for i, row in universe.iterrows():
         ticker = row["ticker"]
         log.info(f"[{i+1}/{total}] Processing {ticker}...")
-        result = process_ticker(ticker, aaa_yield)
+        result = process_ticker(ticker, aaa_yield, risk_free_rate)
         result["Indexes"] = row["indexes"]
         results.append(result)
     df = pd.DataFrame(results)
@@ -2302,9 +2946,22 @@ STATS_PATH      = Path("docs/data/stats.json")
 SNAPSHOTS_DIR   = Path("docs/data/snapshots")
 SNAPSHOTS_INDEX = SNAPSHOTS_DIR / "index.json"
 
+MIN_OUTPUT_ROWS = 100
+MIN_VALID_ROWS = 100
+MIN_VALID_FRACTION = 0.60
+MIN_FINNHUB_VALID_FRACTION = 0.60
+MIN_DCF_ROWS = 100
+
 # [ASSUMED] — no empirical anchor; low_safety_count flags rows the Safety
 # pillar considers distressed. Replaces the old is_trap count (Phase 7 PAGE-02).
 LOW_SAFETY_THRESHOLD = 30.0
+
+
+def _is_first_weekday_of_month(day) -> bool:
+    """Return True only for the first Monday-Friday date in day’s month."""
+    first = day.replace(day=1)
+    weekend_offset = 7 - first.weekday() if first.weekday() > 4 else 0
+    return day == first + timedelta(days=weekend_offset)
 
 
 def _compute_stats(df: pd.DataFrame) -> dict:
@@ -2372,6 +3029,16 @@ def _compute_stats(df: pd.DataFrame) -> dict:
     coverage_stats = {
         "avg_coverage_pct": round(float(cov_vals.mean()), 2) if cov_vals is not None and len(cov_vals) > 0 else None,
     }
+    finnhub_col = df["Provider_Finnhub_OK"] if "Provider_Finnhub_OK" in df.columns else None
+    finnhub_ok_rows = (
+        int(finnhub_col.fillna(False).astype(bool).sum())
+        if finnhub_col is not None
+        else 0
+    )
+    coverage_stats["finnhub_ok_rows"] = finnhub_ok_rows
+    coverage_stats["finnhub_coverage_pct"] = (
+        round(finnhub_ok_rows / len(df) * 100.0, 2) if len(df) else None
+    )
     for key, col_name in (
         ("tickers_with_piotroski", "Piotroski_F"),
         ("tickers_with_altman",    "Altman_Z"),
@@ -2393,12 +3060,125 @@ def _compute_stats(df: pd.DataFrame) -> dict:
     }
 
 
-def write_json(df: pd.DataFrame) -> None:
-    if len(df) < 100:
-        log.error(
-            f"Only {len(df)} rows produced — aborting JSON write (minimum 100 required)"
+def _validate_output_dataframe(df: pd.DataFrame) -> dict:
+    """Reject structurally complete-looking output that is not decision-useful."""
+    total_rows = len(df)
+    if total_rows < MIN_OUTPUT_ROWS:
+        raise ValueError(
+            f"Only {total_rows} rows produced; minimum total is {MIN_OUTPUT_ROWS}"
         )
-        sys.exit(1)
+
+    required_columns = {
+        "Ticker",
+        "Price",
+        "OverallScore",
+        "Error",
+        "Provider_Finnhub_OK",
+        "DCF_Intrinsic_Value",
+        "DCF_Value_Low",
+        "DCF_Value_High",
+        "DCF_WACC_Pct",
+        "DCF_Terminal_Growth_Pct",
+        "DCF_Terminal_Value_Pct",
+    }
+    missing_columns = sorted(required_columns - set(df.columns))
+    if missing_columns:
+        raise ValueError(f"Output is missing required columns: {', '.join(missing_columns)}")
+
+    ticker_values = df["Ticker"].fillna("").astype(str).str.strip()
+    missing_ticker_count = int(ticker_values.eq("").sum())
+    if missing_ticker_count:
+        raise ValueError(f"Output contains {missing_ticker_count} blank ticker rows")
+
+    duplicate_count = int(ticker_values.duplicated().sum())
+    if duplicate_count:
+        raise ValueError(f"Output contains {duplicate_count} duplicate ticker rows")
+
+    valid_mask = df["Error"].isna() & df["OverallScore"].notna()
+    valid_rows = int(valid_mask.sum())
+    valid_fraction = valid_rows / total_rows if total_rows else 0.0
+    if valid_rows < MIN_VALID_ROWS:
+        raise ValueError(
+            f"Only {valid_rows} valid scored rows produced; minimum is {MIN_VALID_ROWS}"
+        )
+    if valid_fraction < MIN_VALID_FRACTION:
+        raise ValueError(
+            f"Only {valid_fraction:.1%} of rows are valid and scored; "
+            f"minimum is {MIN_VALID_FRACTION:.0%}"
+        )
+
+    finnhub_rows = int(df["Provider_Finnhub_OK"].eq(True).sum())
+    finnhub_fraction = finnhub_rows / total_rows if total_rows else 0.0
+    if finnhub_fraction < MIN_FINNHUB_VALID_FRACTION:
+        raise ValueError(
+            f"Only {finnhub_fraction:.1%} of rows have valid Finnhub data; "
+            f"minimum is {MIN_FINNHUB_VALID_FRACTION:.0%}"
+        )
+
+    dcf_rows = df[df["Error"].isna() & df["DCF_Intrinsic_Value"].notna()].copy()
+    dcf_count = len(dcf_rows)
+    if dcf_count < MIN_DCF_ROWS:
+        raise ValueError(
+            f"Only {dcf_count} valid FCFF DCF rows produced; minimum is {MIN_DCF_ROWS}"
+        )
+    if bool((dcf_rows["DCF_Intrinsic_Value"] <= 0).any()):
+        raise ValueError("FCFF DCF output contains non-positive intrinsic values")
+
+    range_columns = ["DCF_Value_Low", "DCF_Intrinsic_Value", "DCF_Value_High"]
+    missing_range_count = int(dcf_rows[range_columns].isna().any(axis=1).sum())
+    if missing_range_count:
+        raise ValueError(f"FCFF DCF output contains {missing_range_count} incomplete ranges")
+    invalid_range_count = int(
+        (
+            (dcf_rows["DCF_Value_Low"] > dcf_rows["DCF_Intrinsic_Value"])
+            | (dcf_rows["DCF_Value_High"] < dcf_rows["DCF_Intrinsic_Value"])
+        ).sum()
+    )
+    if invalid_range_count:
+        raise ValueError(f"FCFF DCF output contains {invalid_range_count} misordered ranges")
+
+    invalid_rate_count = int(
+        (dcf_rows["DCF_WACC_Pct"] <= dcf_rows["DCF_Terminal_Growth_Pct"]).sum()
+    )
+    if invalid_rate_count:
+        raise ValueError(
+            f"FCFF DCF output contains {invalid_rate_count} rows with WACC at or below terminal growth"
+        )
+    invalid_terminal_count = int(
+        (
+            (dcf_rows["DCF_Terminal_Value_Pct"] < 0)
+            | (dcf_rows["DCF_Terminal_Value_Pct"] > 100)
+        ).sum()
+    )
+    if invalid_terminal_count:
+        raise ValueError(
+            f"FCFF DCF output contains {invalid_terminal_count} invalid terminal-value shares"
+        )
+
+    return {
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "valid_fraction": valid_fraction,
+        "finnhub_rows": finnhub_rows,
+        "finnhub_fraction": finnhub_fraction,
+        "dcf_rows": dcf_count,
+    }
+
+
+def write_json(df: pd.DataFrame) -> None:
+    try:
+        validation = _validate_output_dataframe(df)
+    except ValueError as exc:
+        log.error(f"Aborting JSON write: {exc}")
+        raise
+
+    log.info(
+        "Output validation passed: "
+        f"{validation['valid_rows']}/{validation['total_rows']} valid scored rows "
+        f"({validation['valid_fraction']:.1%}); "
+        f"Finnhub {validation['finnhub_fraction']:.1%}; "
+        f"FCFF DCF {validation['dcf_rows']} rows"
+    )
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     rows = json.loads(df.to_json(orient="records"))
     # Build nested scores object post-serialization (SCORE-05 / Pitfall 3).
@@ -2474,11 +3254,13 @@ def main():
     # 1. Build universe
     universe = get_universe()
 
-    # 2. Fetch AAA yield
+    # 2. Fetch market discount-rate anchors
     aaa_yield = fetch_aaa_yield()
+    risk_free_rate = fetch_risk_free_rate()
+    _validate_finnhub_access()
 
     # 3. Process all tickers
-    results_df = run_screener(universe, aaa_yield)
+    results_df = run_screener(universe, aaa_yield, risk_free_rate)
 
     # 4. Write JSON output
     write_json(results_df)

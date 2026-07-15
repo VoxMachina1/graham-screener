@@ -11,7 +11,7 @@ Covers the two live-data bugs surfaced after the first scored Actions run:
 
 DESIGN RULES (match test_scoring.py):
   - Vanilla assert only — no pytest dependency.
-  - Env vars set BEFORE importing stock_screener (module reads them at import).
+  - Dummy env vars retained for compatibility with network-entry-point guards.
 
 HOW TO RUN:
     python tests/test_growth_trap_fixes.py

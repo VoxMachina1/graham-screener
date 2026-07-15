@@ -6,8 +6,7 @@ Tests for the 4-pillar absolute OverallScore helpers introduced in Plan 02:
 
 DESIGN RULES:
   - Vanilla assert only — no pytest dependency (matches test_valuation_fixture.py style).
-  - Offline: env vars are set BEFORE importing stock_screener so the module-level
-    os.environ["FRED_API_KEY"] / ["FINNHUB_API_KEY"] reads succeed without real keys.
+  - Offline: dummy env vars guard against accidentally reaching a network entry point.
   - All scoring functions are pure (numeric inputs → numeric outputs, no API calls).
 
 HOW TO RUN:
@@ -17,7 +16,7 @@ HOW TO RUN:
 import os
 import sys
 
-# Must be set BEFORE importing stock_screener (module reads env vars at import time).
+# Dummy credentials keep any accidentally reached network entry point deterministic.
 os.environ.setdefault("FRED_API_KEY", "test")
 os.environ.setdefault("FINNHUB_API_KEY", "test")
 
@@ -364,6 +363,27 @@ def test_overall_score_negative_debt_equity_worst_score():
     )
 
 
+def test_high_rates_make_same_discount_less_attractive():
+    """The same valuation discount must score lower when the live AAA yield is higher."""
+    common = dict(
+        lynch_discount=15.0,
+        graham_discount=15.0,
+        defensive_score=5,
+        debt_equity=0.5,
+        current_ratio=2.0,
+        growth_g=8.0,
+        growth_stability=0.7,
+        coverage_fraction=1.0,
+    )
+    low_rate = overall_score(**common, aaa_yield=3.0)
+    high_rate = overall_score(**common, aaa_yield=6.0)
+
+    assert high_rate["value_discount"] < low_rate["value_discount"], (
+        "A fixed discount should be less attractive in a higher-rate environment: "
+        f"{high_rate['value_discount']} !< {low_rate['value_discount']}"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Runner
 # ─────────────────────────────────────────────────────────────────────────────
@@ -408,6 +428,7 @@ def run_all():
         test_overall_score_pillar_renormalization_missing_growth,
         test_overall_score_coverage_pct_reflects_present,
         test_overall_score_negative_debt_equity_worst_score,
+        test_high_rates_make_same_discount_less_attractive,
     ]
     passed = 0
     failed = 0

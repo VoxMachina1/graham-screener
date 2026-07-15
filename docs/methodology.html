@@ -290,12 +290,12 @@
 
     <!-- ── Panel 4: Distress & DCF (Phase 7) ── -->
     <section role="tabpanel" id="panel-distress" aria-labelledby="tab-distress" hidden>
-      <h2>Distress Signals &amp; Discounted Cash Flow</h2>
+      <h2>Distress Signals &amp; FCFF Discounted Cash Flow</h2>
       <p>
         Phase 7 adds two distress-detection sub-scores to the Safety pillar (Piotroski F-Score,
-        Altman Z&Prime;) and a two-stage discounted cash flow model as a fourth Value sub-group.
-        These replace the earlier binary <code>is_trap</code> gate: a distressed stock now scores
-        low on Safety proportionally, rather than being hard-vetoed. All band thresholds below are
+        Altman Z&Prime;) and the FCFF DCF is a fourth Value sub-group. Distress scores influence
+        Safety continuously. The separate <code>is_trap</code> and <code>Trap_Reasons</code> fields
+        remain warning-only research prompts and never hard-veto a ticker. All band thresholds below are
         <strong>[ASSUMED]</strong> version-controlled config constants with no empirical anchor yet
         &mdash; monitor the live distribution on the <a href="stats.html">Stats</a> page and expect
         tuning iterations.
@@ -347,24 +347,51 @@
         the same neutral 50.0 as missing-data tickers, never a zero.
       </p>
 
-      <h3>Two-Stage Discounted Cash Flow</h3>
-      <p>Columns: <code>DCF_Intrinsic_Value</code>, <code>DCF_Discount_Pct</code>,
-         <code>DCF_Implied_Growth</code>, <code>dcf_reverse_converged</code> &mdash; a forward
-         intrinsic-value estimate plus a reverse solve for the growth rate the market is currently
-         pricing in.</p>
+      <h3>Screen-Grade FCFF DCF and Reverse DCF</h3>
+      <p>Columns include <code>DCF_Intrinsic_Value</code>, <code>DCF_Value_Low</code>,
+         <code>DCF_Value_High</code>, <code>DCF_Discount_Pct</code>,
+         <code>DCF_Implied_Growth</code>, <code>DCF_Growth_Used_Pct</code>,
+         <code>DCF_Growth_Gap_Pct</code>, <code>DCF_WACC_Pct</code>,
+         <code>DCF_WACC_Unfloored_Pct</code>, <code>DCF_WACC_Floor_Applied</code>,
+         currency metadata, and <code>dcf_reverse_converged</code>.</p>
       <dl>
-        <dt>Stage 1 &mdash; High growth</dt>
-        <dd>The stock's realized 5-year EPS CAGR is applied for 5 years to project forward EPS.</dd>
+        <dt>Base free cash flow to the firm</dt>
+        <dd>Reported operating cash flow minus capital expenditure, plus after-tax interest
+            expense. This converts the reported cash-flow starting point into a screen-grade FCFF
+            estimate while retaining the working-capital movement already captured in operating
+            cash flow. Missing capex produces no DCF rather than treating all operating cash flow
+            as free cash flow.</dd>
+        <dt>Stage 1 &mdash; Growth fade</dt>
+        <dd>The reconciled growth estimate is bounded between &minus;20% and 15%, then linearly
+            fades over five years toward the terminal growth rate. EPS growth remains a proxy for
+            FCFF growth at this screening depth and is disclosed as a model limitation.</dd>
         <dt>Terminal value</dt>
-        <dd>Gordon Growth Model using a terminal growth rate capped at
-            <code>min(realized 5yr CAGR, 3.0%)</code> &mdash; roughly long-run nominal GDP growth,
-            so no stock is assumed to out-grow the broader economy forever.</dd>
+        <dd>Gordon Growth Model using a non-negative terminal rate capped at 3.0%. The dashboard
+            also reports terminal value as a percentage of enterprise value so highly
+            terminal-dependent results are visible.</dd>
         <dt>Discount rate (WACC)</dt>
-        <dd>Live Moody's AAA corporate bond yield (fetched from FRED each run) plus a 5.5%
-            equity risk premium (<code>DCF_ERP</code>, config-overridable). If the terminal
-            growth rate is ever configured at or above WACC, the computation raises a loud
-            config error rather than silently producing a nonsensical (infinite or negative)
-            valuation.</dd>
+        <dd>Cost of equity uses the live 10-year Treasury rate plus beta times the configured 5.5%
+            equity risk premium. Pre-tax cost of debt is the higher of the live Moody's AAA yield
+            and a usable observed interest-expense-to-average-debt rate. Equity and debt are
+            market-capital-structure weighted and debt receives the tax shield. Missing beta
+            defaults to 1.0 and produces an explicit data warning. Because a current capital
+            structure can create implausibly low screen-level rates, effective WACC is no lower
+            than the greatest of calculated WACC, the 10-year Treasury plus 2.5 percentage points,
+            and terminal growth plus 4.0 percentage points. The raw rate and whether the guardrail
+            was applied are both displayed; this is a screening control, not a company-specific
+            target-capital-structure forecast.</dd>
+        <dt>Enterprise-to-equity bridge</dt>
+        <dd>Present value of FCFF produces enterprise value. Cash is added, total debt is
+            subtracted, and the result is divided by diluted shares where available. If aggregate
+            total debt is present it is used directly; current debt is added only when total debt
+            must be reconstructed from components. If the quoted share price and reported
+            financial statements use different known currencies, no DCF is produced: adding cash,
+            debt, and enterprise value across unlike currencies would create a false per-share
+            value. Missing currency metadata is retained with an explicit warning.</dd>
+        <dt>Valuation range</dt>
+        <dd>The low and high values pair changes in initial growth, WACC, and terminal growth. The
+            base DCF alone feeds scoring; the range is displayed to make assumption sensitivity
+            visible.</dd>
         <dt>Forward discount</dt>
         <dd><code>DCF_Discount_Pct = (1 &minus; Price &divide; Intrinsic Value) &times; 100</code>
             &mdash; positive means the stock trades below its DCF intrinsic value (cheap signal),
@@ -372,13 +399,18 @@
             screener.</dd>
         <dt>Reverse DCF</dt>
         <dd>Solves for the growth rate that would justify the current price, given the same WACC
-            and terminal-growth assumptions. When the solver cannot find a root (no valid growth
+            and terminal-growth assumptions. <code>DCF_Growth_Gap_Pct</code> is the bounded
+            screening growth assumption minus market-implied growth. When the solver cannot find a root (no valid growth
             rate produces the observed price), <code>DCF_Implied_Growth</code> is <code>None</code>
             and <code>dcf_reverse_converged</code> is <code>False</code> &mdash; never a silently
             clipped or default value.</dd>
       </dl>
-      <p>DCF is <strong>excluded for Financial Services and Real Estate (REITs)</strong> &mdash;
-         see the sector applicability matrix below.</p>
+      <p>This is an <strong>idea-screening diagnostic, not a company-specific research model</strong>.
+         It is excluded for Financial Services and Real Estate (REITs). The former EPS projection
+         remains available under explicitly named <code>Discounted_Earnings_*</code> columns for
+         comparison, but it is not described as DCF and does not feed the DCF score. High leverage,
+         terminal value above 85% of enterprise value, currency uncertainty, and other assumption
+         risks remain warnings rather than hard stock-level gates.</p>
 
       <h3>Sector Applicability Matrix</h3>
       <p>

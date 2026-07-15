@@ -5,7 +5,7 @@ Tests for the 3-subgroup Value pillar and ROIC-in-Quality additions to overall_s
 
 DESIGN RULES (match test_scoring.py):
   - Vanilla assert only — no pytest dependency.
-  - Env vars set BEFORE importing stock_screener (module reads them at import).
+  - Dummy env vars retained for compatibility with network-entry-point guards.
   - All functions are pure — no API calls.
 
 HOW TO RUN:
@@ -15,7 +15,7 @@ HOW TO RUN:
 import os
 import sys
 
-# Must be set BEFORE importing stock_screener (module reads env vars at import time).
+# Dummy credentials keep any accidentally reached network entry point deterministic.
 os.environ.setdefault("FRED_API_KEY", "test")
 os.environ.setdefault("FINNHUB_API_KEY", "test")
 

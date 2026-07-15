@@ -1,6 +1,6 @@
 # Lynch & Graham Screener
 
-A daily-automated value stock screener that applies Peter Lynch and Benjamin Graham valuation frameworks — plus Piotroski F-Score, Altman Z'', and two-stage DCF — across the S&P 500, Dow 30, and Nasdaq-100 (~550 tickers). Results publish to a free, public dashboard on GitHub Pages, updated automatically every weekday via GitHub Actions.
+A daily-automated value stock screener that applies Peter Lynch and Benjamin Graham valuation frameworks — plus Piotroski F-Score, Altman Z'', and a screen-grade FCFF DCF — across the S&P 500, Dow 30, and Nasdaq-100 (~550 tickers). Results publish to a free, public dashboard on GitHub Pages, updated automatically every weekday via GitHub Actions.
 
 **No Google account, no signup, no friction — just open the link.**
 
@@ -12,7 +12,7 @@ A daily-automated value stock screener that applies Peter Lynch and Benjamin Gra
 - **History** — `docs/history.html` — monthly historic snapshots
 - **Methodology** — `docs/methodology.html` — full writeup of every signal and scoring rule
 
-(Replace with your actual `https://<user>.github.io/<repo>/` URL once Pages is enabled.)
+Open the live dashboard at <https://voxmachina1.github.io/graham-screener/>.
 
 ## How it works
 
@@ -24,7 +24,7 @@ stock_screener.py
   ├─ Fetch tickers: Wikipedia (S&P 500 / Dow 30 / Nasdaq-100)
   ├─ Fetch fundamentals: yfinance (price, EPS history, dividends, statements)
   ├─ Fetch fundamentals: Finnhub (EPS/growth, balance sheet ratios, sector)
-  ├─ Fetch macro: FRED (Moody's AAA corporate bond yield)
+  ├─ Fetch macro: FRED (Moody's AAA yield + 10-year Treasury rate)
   ├─ Compute Lynch, Graham, Piotroski, Altman Z'', DCF, and factor metrics
   ├─ Score into 4-pillar OverallScore (0–100)
   └─ Write docs/data/results.json (+ monthly docs/data/snapshots/*.json)
@@ -49,9 +49,9 @@ Every ticker gets an absolute `OverallScore` (0–100), averaged across four pil
 | **Growth** | Earnings growth & consistency | Reconciled EPS growth rate, growth stability |
 | **Safety** | Distress risk | Piotroski F-Score (0–9), Altman Z'', defensive/debt/current-ratio sub-scores |
 
-Distress signals (Piotroski, Altman Z'', DCF) are gated by a **sector applicability matrix** — e.g. Altman Z'' and DCF are suppressed (`None`, never `0`) for Financial Services, and DCF is suppressed for Real Estate, since those models don't apply cleanly to those sectors.
+Distress and valuation signals are gated by a **sector applicability matrix** — e.g. Altman Z'' and FCFF DCF are suppressed (`None`, never `0`) for Financial Services, and FCFF DCF is suppressed for Real Estate, since those models don't apply cleanly to those sectors. Trap flags are research warnings, not hard exclusions or score penalties.
 
-Two independent valuation checks (forward + reverse two-stage DCF) estimate intrinsic value and an implied-growth "expectations gap" per ticker, bounded by a growth floor so distressed/negative-growth names can't produce a nonsensical false-positive "deep value" signal.
+The FCFF model converts operating cash flow to free cash flow to the firm, estimates a capital-structure-weighted discount rate, bridges enterprise value to diluted per-share equity value, and reverse-solves the initial FCFF growth implied by the market price. The former EPS projection is retained under explicitly named `Discounted_Earnings_*` fields as a secondary diagnostic, not described as DCF.
 
 Full formulas, band thresholds, and the sector matrix are documented in `docs/methodology.html`.
 
@@ -61,8 +61,8 @@ Full formulas, band thresholds, and the sector matrix are documented in `docs/me
 |---|---|---|
 | [Wikipedia](https://en.wikipedia.org/) | Index constituent lists | none |
 | [yfinance](https://github.com/ranaroussi/yfinance) | Price, EPS history, dividends, financial statements | none |
-| [Finnhub](https://finnhub.io/) | Current EPS/growth, balance sheet ratios, GICS sector | free API key |
-| [FRED](https://fred.stlouisfed.org/) | Moody's AAA corporate bond yield (Graham discount rate) | free API key |
+| [Finnhub](https://finnhub.io/) | Current EPS/growth and balance-sheet ratios | free API key |
+| [FRED](https://fred.stlouisfed.org/) | Moody's AAA corporate yield and 10-year Treasury rate | free API key |
 
 ## Running it yourself
 
@@ -109,6 +109,7 @@ python tests/test_factors_phase6.py
 python tests/test_scoring_phase6.py
 python tests/test_distress_phase7.py
 python tests/test_dcf_phase7.py
+python tests/test_remediation.py
 python tests/test_valuation_fixture.py
 ```
 
@@ -118,9 +119,17 @@ Each file is a self-contained script (no pytest dependency) — run individually
 
 `.github/workflows/screener.yml` runs the screener on a weekday schedule and on manual `workflow_dispatch`. It:
 
-1. Runs `stock_screener.py` with `FRED_API_KEY`/`FINNHUB_API_KEY` from repo secrets
-2. Commits and pushes `docs/data/results.json` (+ `stats.json`) if changed
-3. On the first weekday of each month, also commits a dated snapshot to `docs/data/snapshots/`
+1. Installs dependencies and runs every offline regression script
+2. Runs `stock_screener.py` with `FRED_API_KEY`/`FINNHUB_API_KEY` from repo secrets
+3. Validates total rows, valid scored rows, Finnhub coverage, required columns, ticker uniqueness,
+   DCF row coverage, ordered valuation ranges, WACC/terminal-growth relationships, and terminal-value shares
+4. Uploads generated JSON as a retained workflow artifact for inspection
+5. Commits and pushes `docs/data/results.json` (+ `stats.json`) only on scheduled runs or when a
+   manual run explicitly sets `publish_results` to true
+6. On the first weekday of each month, also commits a dated snapshot to `docs/data/snapshots/`
+
+Manual runs are non-publishing by default. This makes it possible to validate code, credentials,
+and output artifacts on a branch without changing the public dashboard.
 
 To set this up on a fork, add `FRED_API_KEY` and `FINNHUB_API_KEY` as repository secrets (Settings → Secrets and variables → Actions), then enable GitHub Pages (Settings → Pages → source: `docs/` on the default branch).
 
