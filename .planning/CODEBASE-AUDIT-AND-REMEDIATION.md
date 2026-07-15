@@ -16,7 +16,7 @@ The static GitHub Pages architecture is a strong fit for the product: it is inex
 
 The reviewed production model should not be used as a standalone buy recommendation. It is useful as an idea generator. A high score means “worth investigating,” not “underwritten expected return.” Trap flags should remain visible warnings rather than hard exclusions; unusual situations such as CMCSA can be exactly why a human should investigate a surfaced candidate.
 
-This branch implements the unambiguous operational and formula fixes, plus a first screen-grade FCFF DCF. A 518-ticker Yahoo/FRED live run has been reviewed for coverage, outliers, terminal-value dependence, and sector behavior. Full-provider validation remains pending because the local Finnhub credential returned HTTP 401; the branch now fails immediately on that condition instead of publishing degraded rankings.
+This branch implements the unambiguous operational and formula fixes, plus a first screen-grade FCFF DCF. A 518-ticker Yahoo/FRED isolated run and a successful full-provider, non-publishing [GitHub Actions acceptance run](https://github.com/VoxMachina1/graham-screener/actions/runs/29392259932) were reviewed for coverage, outliers, terminal-value dependence, and sector behavior. The local Finnhub credential remains stale, but the repository secret produced 100% Finnhub coverage; invalid credentials now fail immediately instead of publishing degraded rankings.
 
 ## Confirmed product decisions
 
@@ -38,7 +38,7 @@ This branch implements the unambiguous operational and formula fixes, plus a fir
 | A-06 | High | Formula/control defect | Implemented | Trap FCF sign now prefers the independently calculated Yahoo FCF yield and falls back to Finnhub FCF/share. `Trap_Reasons` identifies high leverage, weak liquidity, unstable earnings, and negative FCF while preserving warning-only behavior. |
 | A-07 | High | Formula/control defect | Implemented | Monthly snapshot check now computes the actual first weekday. It no longer snapshots every weekday occurring on calendar days 1–7. |
 | A-08 | High | Governance/control defect | Implemented, follow-up proposed | Actions now has concurrency protection, a 90-minute timeout, fail-fast offline tests, immutable action pins, non-publishing manual validation runs, and retained validation artifacts. Follow-up: pin Python dependencies and combine result/snapshot publication into one push. |
-| A-09 | High | Missing decision output | Implemented as screen-grade prototype | Replace scored discounted EPS with FCFF DCF, an EV-to-equity bridge, paired range, reverse solve, and actual-minus-implied growth gap. Retain the old output only as `Discounted_Earnings_*`. Live QA added currency-consistency exclusion, a disclosed WACC guardrail, and leverage/terminal-dependence warnings. A valid-Finnhub Actions run remains required before calling the model stable. |
+| A-09 | High | Missing decision output | Implemented as screen-grade prototype | Replace scored discounted EPS with FCFF DCF, an EV-to-equity bridge, paired range, reverse solve, and actual-minus-implied growth gap. Retain the old output only as `Discounted_Earnings_*`. Live QA added currency-consistency exclusion, a disclosed WACC guardrail, leverage/terminal-dependence warnings, and zero-valued stressed equity cases. Full-provider Actions acceptance passed; research validation is still required before decision-grade use. |
 | A-10 | High | Unsupported assumption | Proposed | Replace missing-data renormalization with an explicit confidence score and minimum evidence gates. Neutral fallback values must not count as observed coverage. |
 | A-11 | High | Not comparable without bridge | Proposed | Introduce sector-specific metric applicability. Banks/insurers need book-value, ROE/ROTCE, capital, and payout logic; REITs need AFFO/NAV/cap-rate logic; cyclicals need mid-cycle normalization. |
 | A-12 | High | Unsupported assumption | Proposed | Normalize Piotroski by criteria evaluated or emit both pass count and evaluated count. A 4/4 record must not be represented as equivalent to 4/9. |
@@ -123,17 +123,20 @@ The isolated run loaded 503 S&P 500, 30 Dow, and 103 Nasdaq-100 constituents for
 
 Eight valuations had terminal value above 85% of EV. The deepest apparent discounts included CHTR, PDD, CMCSA, FOX, GPN, and LDOS. Review identified three distinct explanations: PDD was a currency-unit error and is now excluded; CHTR/CMCSA were highly leverage- and WACC-sensitive and now carry a WACC floor plus explicit warnings; several semiconductor, industrial, energy, and utility names had very low values because one-year FCFF and EPS-growth proxies are not mid-cycle normalized. Those cyclical/normalization limitations remain model weaknesses rather than formula errors.
 
-The run was not full-provider-valid: every local Finnhub request returned HTTP 401, while the old guard still reported 518/518 scored rows because Yahoo fallbacks and missing-data renormalization masked the outage. The branch now adds a Finnhub preflight, fatal authentication handling, per-row provider provenance, and a minimum provider-coverage publication gate.
+The isolated run was not full-provider-valid: every local Finnhub request returned HTTP 401, while the old guard still reported 518/518 scored rows because Yahoo fallbacks and missing-data renormalization masked the outage. The branch now adds a Finnhub preflight, fatal authentication handling, per-row provider provenance, and a minimum provider-coverage publication gate.
 
-Before the FCFF result is considered stable:
+The final non-publishing Actions acceptance run completed 518 rows with zero row errors, zero duplicate tickers, and 518/518 valid Finnhub records. It produced 308 FCFF DCFs, with 224 reverse solves converged. Sixty-seven rows disclosed a WACC guardrail; none retained terminal value above 85% of EV. Four known price/financial-statement currency mismatches (PDD, ASML, CCEP, and FER) were excluded from DCF. Six stressed scenarios (PEG, SW, ED, CSX, DE, and NRG) drove enterprise value below net debt; their low common-equity case is now explicitly zero, with a warning, rather than incorrectly represented as missing.
 
-1. Run the entire production universe without publishing automatically.
-2. Report DCF coverage by sector and each missing-input reason.
-3. Inspect the top and bottom 25 DCF discounts manually.
-4. Flag WACC below 6%, WACC above 20%, terminal value above 85% of EV, negative equity bridges, and value ranges wider than 3×.
-5. Compare at least ten companies across capital intensity and leverage against a simple analyst-built FCFF cross-check.
-6. Confirm financials and REITs are absent rather than scored zero.
-7. Review rank changes before allowing the new DCF field to affect public Top Picks.
+The acceptance artifact contained 75 buy signals and 282 warning-only trap flags. Financial Services contributed 25 of the 75 buy signals, which is a material concentration and further evidence that the current composite should not be treated as a diversified portfolio recommendation. The five-sleeve counterproposal should remain in shadow mode until historical and point-in-time testing is available.
+
+Remaining research validation before the FCFF result is considered decision-grade:
+
+1. Report DCF coverage by sector and every missing-input/exclusion reason as a dedicated field.
+2. Inspect the top and bottom 25 DCF discounts manually on every assumption-changing release.
+3. Compare at least ten companies across capital intensity and leverage against a simple analyst-built FCFF cross-check.
+4. Confirm financials and REITs remain absent rather than scored zero on each schema change.
+5. Review rank changes before allowing future score-model changes to affect public Top Picks.
+6. Backtest with point-in-time membership, statements, prices, and delisting coverage before interpreting rank performance.
 
 Until those steps are complete, the status is `screen-grade`, not `decision-grade`.
 
@@ -300,10 +303,9 @@ The documentation should be treated as a maintained product surface:
 - Existing offline test scripts: passing.
 - New remediation regression script: passing.
 - Total named cases after this branch: 173, plus the KO fixture assertions.
-- Live provider run: partially performed in an isolated output directory for all 518 tickers.
-  Wikipedia, FRED, and Yahoo succeeded; the local Finnhub credential returned HTTP 401 for every
-  ticker. The run exposed and drove the new provider-coverage gate, credential preflight, currency
-  exclusion, WACC guardrail, and DCF warnings. A branch Actions run with the repository secret is
-  the remaining live acceptance test.
+- Live provider run: complete. Non-publishing Actions run `29392259932` passed with 518 rows,
+  zero errors, zero duplicates, 100% Finnhub coverage, 308 FCFF DCFs, and a retained artifact.
+  The run also proved that publication and snapshot steps are skipped by default on manual runs.
 - Public JSON regenerated: no.
-- Public ranking behavior approved: no; requires live distribution review.
+- Public ranking behavior approved: no. The live distribution was reviewed, but merge/publication
+  remains a human decision; Financial Services supplied one-third of current buy signals.
