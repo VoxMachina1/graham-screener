@@ -117,6 +117,9 @@ Each file is a self-contained script (no pytest dependency) — run individually
 
 ## Automation
 
+`.github/workflows/tests.yml` runs the complete offline regression suite on every pull request to
+`master`. It has read-only repository permissions and receives no provider secrets.
+
 `.github/workflows/screener.yml` runs the screener on a weekday schedule and on manual `workflow_dispatch`. It:
 
 1. Installs dependencies and runs every offline regression script
