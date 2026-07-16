@@ -37,3 +37,4 @@ jobs:
           for test_file in tests/test_*.py; do
             python "$test_file"
           done
+          node tests/test_dashboard_js.mjs
