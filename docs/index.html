@@ -82,6 +82,7 @@
     const drop = { headerFilter: "list", headerFilterParams: { valuesLookup: true, clearable: true } };
     const num  = { headerFilter: "input", headerFilterFunc: ">=", headerFilterPlaceholder: "≥" };
     const txt  = { headerFilter: "input", headerFilterFunc: "like", headerFilterPlaceholder: "search" };
+    const wide = { ...txt, minWidth: 260, widthGrow: 2 };
 
     return [
       // ── Identity ──────────────────────────────────────────────────────────

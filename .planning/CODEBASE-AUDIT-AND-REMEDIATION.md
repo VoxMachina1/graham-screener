@@ -302,7 +302,8 @@ The documentation should be treated as a maintained product surface:
 
 - Existing offline test scripts: passing.
 - New remediation regression script: passing.
-- Total named cases after this branch: 173, plus the KO fixture assertions.
+- Total named Python cases after this branch: 173, plus the KO fixture assertions and a dashboard
+  JavaScript runtime test that executes `buildColumns()`.
 - Live provider run: complete. Non-publishing Actions run `29392259932` passed with 518 rows,
   zero errors, zero duplicates, 100% Finnhub coverage, 308 FCFF DCFs, and a retained artifact.
   The run also proved that publication and snapshot steps are skipped by default on manual runs.

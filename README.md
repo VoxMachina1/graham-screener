@@ -111,9 +111,10 @@ python tests/test_distress_phase7.py
 python tests/test_dcf_phase7.py
 python tests/test_remediation.py
 python tests/test_valuation_fixture.py
+node tests/test_dashboard_js.mjs
 ```
 
-Each file is a self-contained script (no pytest dependency) — run individually or chain with `&&`. All test fixtures are offline (no network calls, no API keys required).
+Each file is a self-contained script (no pytest dependency) — run individually or chain with `&&`. All test fixtures are offline (no network calls, no API keys required). The Node test executes the dashboard column factory with browser primitives stubbed so undefined runtime references fail before deployment.
 
 ## Automation
 
