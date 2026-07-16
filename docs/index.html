@@ -152,10 +152,11 @@
       { title: "Growth",        field: "score_growth",  sorter: "number", formatter: numFmt(1), ...num },
       { title: "Safety",        field: "score_safety",  sorter: "number", formatter: numFmt(1), ...num },
       { title: "Trap?",         field: "is_trap",       sorter: "boolean",
-        formatter: function(cell) { return cell.getValue() ? "Yes" : "—"; },
+        formatter: function(cell) { return cell.getValue() === true ? "Yes" : "No"; },
         headerFilter: "list",
-        headerFilterParams: { values: { "true": "Yes", "false": "—", "": "All" }, clearable: true }
+        headerFilterParams: { values: { "true": "Yes", "false": "No", "": "All" }, clearable: true }
       },
+      { title: "Trap Reasons", field: "Trap_Reasons", sorter: "string", ...wide },
       { title: "Coverage %",   field: "coverage_pct",  sorter: "number", formatter: pctFmt, ...num },
 
       // ── Cheap factors (Phase 6) ───────────────────────────────────────────
@@ -171,17 +172,32 @@
       // ── Distress signals + DCF (Phase 7) ──────────────────────────────────
       { title: "Piotroski F",   field: "Piotroski_F",          sorter: "number", formatter: numFmt(0), ...num },
       { title: "Altman Z″",field: "Altman_Z",             sorter: "number", formatter: numFmt(2), ...num },
-      { title: "DCF Value",     field: "DCF_Intrinsic_Value",  sorter: "number", formatter: numFmt(2), ...num },
+      { title: "FCFF DCF",      field: "DCF_Intrinsic_Value",  sorter: "number", formatter: numFmt(2), ...num },
+      { title: "DCF Low",       field: "DCF_Value_Low",        sorter: "number", formatter: numFmt(2), ...num },
+      { title: "DCF High",      field: "DCF_Value_High",       sorter: "number", formatter: numFmt(2), ...num },
       { title: "DCF Disc %",    field: "DCF_Discount_Pct",     sorter: "number", formatter: pctFmt, ...num },
-      { title: "DCF Impl Gr %", field: "DCF_Implied_Growth",   sorter: "number", formatter: pctFmt, ...num },
+      { title: "Impl FCF Gr %", field: "DCF_Implied_Growth",   sorter: "number", formatter: pctFmt, ...num },
+      { title: "FCF Gr Used %", field: "DCF_Growth_Used_Pct",  sorter: "number", formatter: pctFmt, ...num },
+      { title: "Growth Gap %",  field: "DCF_Growth_Gap_Pct",   sorter: "number", formatter: pctFmt, ...num },
+      { title: "WACC %",        field: "DCF_WACC_Pct",         sorter: "number", formatter: pctFmt, ...num },
+      { title: "Raw WACC %",    field: "DCF_WACC_Unfloored_Pct", sorter: "number", formatter: pctFmt, ...num },
+      { title: "WACC Floored",  field: "DCF_WACC_Floor_Applied", sorter: "boolean", formatter: okFmt, ...num },
+      { title: "Terminal EV %", field: "DCF_Terminal_Value_Pct", sorter: "number", formatter: pctFmt, ...num },
+      { title: "Price CCY",     field: "DCF_Price_Currency",   sorter: "string", ...num },
+      { title: "Financial CCY", field: "DCF_Financial_Currency", sorter: "string", ...num },
+      { title: "CCY Mismatch",  field: "DCF_Currency_Mismatch", sorter: "boolean", formatter: okFmt, ...num },
       { title: "DCF Converged", field: "dcf_reverse_converged",sorter: "number", formatter: okFmt, ...num },
       { title: "Cyclical",      field: "DCF_Cyclical_Flag",    sorter: "number", formatter: okFmt, ...num },
+      { title: "DCF Warning",   field: "DCF_Data_Warning",      sorter: "string", ...wide },
+      { title: "Disc Earnings", field: "Discounted_Earnings_Value", sorter: "number", formatter: numFmt(2), ...num },
 
       // ── Combined ──────────────────────────────────────────────────────────
       { title: "Score",        field: "CombinedScore",  sorter: "number", formatter: numFmt(2), ...num },
 
       // ── Utility columns (programmatic filter only) ────────────────────────
       { title: "Buy?",  field: "Show",  visible: false, headerFilter: false },
+      { title: "Finnhub OK", field: "Provider_Finnhub_OK", visible: false, headerFilter: false },
+      { title: "Valuation Warning", field: "Valuation_Input_Warning", sorter: "string", ...wide },
       { title: "Error", field: "Error", visible: false, headerFilter: false,
         formatter: function(cell) {
           const v = cell.getValue();

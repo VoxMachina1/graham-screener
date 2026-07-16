@@ -2,11 +2,11 @@
 Phase 7 DCF helper tests
 =========================
 Covers the new pure helpers added in Phase 7 Plan 01, Task 3:
-  _compute_dcf_forward, _compute_dcf_reverse, _dcf_wacc
+  discounted-earnings diagnostics retained alongside the FCFF DCF
 
 DESIGN RULES (match test_factors_phase6.py):
   - Vanilla assert only -- no pytest dependency.
-  - Env vars set BEFORE importing stock_screener (module reads them at import).
+  - Dummy env vars retained for compatibility with network-entry-point guards.
   - No network calls -- all inputs are plain numeric values.
 
 HOW TO RUN:
@@ -24,13 +24,19 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from stock_screener import (
-    _compute_dcf_forward,
-    _compute_dcf_reverse,
-    _dcf_wacc,
+    _compute_discounted_earnings_forward,
+    _compute_discounted_earnings_reverse,
+    _discounted_earnings_rate,
     DCF_ERP,
     DCF_TERMINAL_GROWTH_CAP,
     DCF_GROWTH_FLOOR,
 )
+
+# Local aliases keep the historical test cases readable while ensuring the
+# production API no longer mislabels discounted EPS as DCF/WACC.
+_compute_dcf_forward = _compute_discounted_earnings_forward
+_compute_dcf_reverse = _compute_discounted_earnings_reverse
+_dcf_wacc = _discounted_earnings_rate
 
 
 # ── _compute_dcf_forward ─────────────────────────────────────────────────────
@@ -231,8 +237,7 @@ def test_dcf_reverse_round_trip():
     )
     # Use intrinsic as price for round-trip
     implied_growth, converged = _compute_dcf_reverse(
-        price=intrinsic, eps=eps, aaa_yield_pct=aaa_yield_pct,
-        g_stage1_pct=g_cagr_pct
+        price=intrinsic, eps=eps, aaa_yield_pct=aaa_yield_pct
     )
     assert converged is True, f"expected converged=True for round-trip, got {converged}"
     assert implied_growth is not None, "expected numeric implied_growth, got None"
@@ -244,7 +249,7 @@ def test_dcf_reverse_round_trip():
 def test_dcf_reverse_converged_returns_float_and_true():
     """Standard fixture: should find a root and return (float, True)."""
     implied_growth, converged = _compute_dcf_reverse(
-        price=80.0, eps=5.0, aaa_yield_pct=5.0, g_stage1_pct=8.0
+        price=80.0, eps=5.0, aaa_yield_pct=5.0
     )
     assert converged is True, f"expected converged=True, got {converged}"
     assert isinstance(implied_growth, float), f"expected float, got {type(implied_growth)}"
@@ -257,7 +262,7 @@ def test_dcf_reverse_no_root_returns_none_false():
     Use price=1,000,000 (astronomically expensive; even at 100% growth DCF won't match).
     """
     implied_growth, converged = _compute_dcf_reverse(
-        price=1_000_000.0, eps=0.01, aaa_yield_pct=5.0, g_stage1_pct=8.0
+        price=1_000_000.0, eps=0.01, aaa_yield_pct=5.0
     )
     assert converged is False, f"expected converged=False for no-root case, got {converged}"
     assert implied_growth is None, (
@@ -268,7 +273,7 @@ def test_dcf_reverse_no_root_returns_none_false():
 def test_dcf_reverse_none_false_when_eps_none():
     """eps=None -> (None, False)."""
     implied_growth, converged = _compute_dcf_reverse(
-        price=80.0, eps=None, aaa_yield_pct=5.0, g_stage1_pct=8.0
+        price=80.0, eps=None, aaa_yield_pct=5.0
     )
     assert implied_growth is None
     assert converged is False
@@ -277,7 +282,7 @@ def test_dcf_reverse_none_false_when_eps_none():
 def test_dcf_reverse_none_false_when_eps_zero():
     """eps=0 -> (None, False)."""
     implied_growth, converged = _compute_dcf_reverse(
-        price=80.0, eps=0.0, aaa_yield_pct=5.0, g_stage1_pct=8.0
+        price=80.0, eps=0.0, aaa_yield_pct=5.0
     )
     assert implied_growth is None
     assert converged is False
@@ -286,7 +291,7 @@ def test_dcf_reverse_none_false_when_eps_zero():
 def test_dcf_reverse_implied_growth_is_rounded():
     """Returned implied_growth should be rounded to 2 decimal places."""
     implied_growth, converged = _compute_dcf_reverse(
-        price=80.0, eps=5.0, aaa_yield_pct=5.0, g_stage1_pct=8.0
+        price=80.0, eps=5.0, aaa_yield_pct=5.0
     )
     if converged and implied_growth is not None:
         # Check it's been rounded: str(x) should not have more than 2 decimal places

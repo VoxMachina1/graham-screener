@@ -4,20 +4,31 @@ on:
   schedule:
     - cron: "0 11 * * 1-5"
   workflow_dispatch:
+    inputs:
+      publish_results:
+        description: "Commit validated results back to the selected branch"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: screener-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     permissions:
       contents: write
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
           cache: "pip"
@@ -25,13 +36,31 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run offline regression tests
+        run: |
+          set -euo pipefail
+          for test_file in tests/test_*.py; do
+            python "$test_file"
+          done
+
       - name: Run screener
         env:
           FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
           FINNHUB_API_KEY:     ${{ secrets.FINNHUB_API_KEY }}
         run: python stock_screener.py
 
+      - name: Retain validation outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screener-results-${{ github.run_id }}
+          path: |
+            docs/data/results.json
+            docs/data/stats.json
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Commit and push results
+        if: github.event_name == 'schedule' || inputs.publish_results == true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -42,15 +71,10 @@ jobs:
           fi
 
       - name: Check if first weekday of month
+        if: github.event_name == 'schedule' || inputs.publish_results == true
         id: check-date
         run: |
-          DAY=$(date +%d)
-          DOW=$(date +%u)
-          if [ "$DAY" -le 7 ] && [ "$DOW" -le 5 ]; then
-            echo "is_first_weekday=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_first_weekday=false" >> "$GITHUB_OUTPUT"
-          fi
+          python -c "from datetime import date; import stock_screener as s; print(f'is_first_weekday={str(s._is_first_weekday_of_month(date.today())).lower()}')" >> "$GITHUB_OUTPUT"
 
       - name: Commit monthly snapshot
         if: steps.check-date.outputs.is_first_weekday == 'true'

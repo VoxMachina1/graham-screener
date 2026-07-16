@@ -7,7 +7,7 @@ Covers the new pure helpers added in Phase 6 Plan 01:
 
 DESIGN RULES (match test_growth_trap_fixes.py):
   - Vanilla assert only — no pytest dependency.
-  - Env vars set BEFORE importing stock_screener (module reads them at import).
+  - Dummy env vars retained for compatibility with network-entry-point guards.
   - No network calls, no yf.Ticker — all inputs are plain dicts/lists/values.
 
 HOW TO RUN:

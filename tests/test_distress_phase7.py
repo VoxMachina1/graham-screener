@@ -2,11 +2,11 @@
 Phase 7 distress signal helper tests
 ======================================
 Covers the new pure helpers added in Phase 7 Plan 01:
-  _yf_row_prev, _dcf_wacc, _compute_piotroski, _compute_altman_z
+  _yf_row_prev, discounted-earnings rate, _compute_piotroski, _compute_altman_z
 
 DESIGN RULES (match test_factors_phase6.py):
   - Vanilla assert only — no pytest dependency.
-  - Env vars set BEFORE importing stock_screener (module reads them at import).
+  - Dummy env vars retained for compatibility with network-entry-point guards.
   - No network calls, no yf.Ticker — all inputs are plain DataFrames with synthetic values.
 
 HOW TO RUN:
@@ -27,7 +27,7 @@ import pandas as pd
 
 from stock_screener import (
     _yf_row_prev,
-    _dcf_wacc,
+    _discounted_earnings_rate,
     _compute_piotroski,
     _compute_altman_z,
     overall_score,
@@ -36,6 +36,8 @@ from stock_screener import (
     DCF_EXCLUDED_SECTORS,
     ALTMAN_EXCLUDED_SECTORS,
 )
+
+_dcf_wacc = _discounted_earnings_rate
 
 
 # ── Fixture helpers ──────────────────────────────────────────────────────────
