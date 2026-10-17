@@ -2799,7 +2799,11 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         if "error" in lm:
             log.info(f"{ticker}: Lynch formula error ({lm['error']}), routing to WORST_DISCOUNT")
             lm = {"Lynch_Discount_Pct": WORST_DISCOUNT}
-    row.update({f"Lynch_{k}": v for k, v in lm.items()})
+    # lynch_metrics returns mixed keys: most unprefixed ("PEG", "FV_GplusD")
+    # but several pre-prefixed ("Lynch_Status", "Lynch_BuyPrice", ...).
+    # Prefix only when missing — never produce "Lynch_Lynch_*".
+    row.update({(k if k.startswith("Lynch_") else f"Lynch_{k}"): v
+                for k, v in lm.items()})
 
     # ── Graham ──────────────────────────────────────────────────────
     # D-01: same sentinel routing for Graham error returns.
