@@ -2542,6 +2542,33 @@ def graham_defensive_score(
     return {"DefensiveScore": score, "DefensiveLabel": label, **checks}
 
 
+def ncav_metrics(price: float, current_assets: float | None,
+                 total_liabilities: float | None,
+                 shares_outstanding: float | None) -> dict:
+    """
+    Net Current Asset Value (Graham's net-net arithmetic).
+
+    NCAV = current assets - total liabilities (all obligations).
+    Net-net (Graham's classic rule): price < 2/3 x NCAV per share.
+    Feeds the enterprising sleeve's net-net screen (Definitions & Operating
+    Rules: "net-nets defined strictly as price < 2/3 x net current asset
+    value per share").
+    Missing inputs -> None columns (honest, not zero).
+    """
+    m = {"NCAV": None, "NCAV_PS": None, "NetNet": None, "NCAV_Discount_Pct": None}
+    if (current_assets is None or total_liabilities is None
+            or shares_outstanding is None or shares_outstanding <= 0):
+        return m
+    ncav = current_assets - total_liabilities
+    ncav_ps = ncav / shares_outstanding
+    m["NCAV"] = round(ncav, 2)
+    m["NCAV_PS"] = round(ncav_ps, 4)
+    if ncav_ps > 0 and price and price > 0:
+        m["NetNet"] = bool(price < (2.0 / 3.0) * ncav_ps)
+        m["NCAV_Discount_Pct"] = round((1 - price / ncav_ps) * 100, 1)
+    return m
+
+
 def combined_score(lynch_discount: float | None, graham_discount: float | None) -> float | None:
     """
     Simple 50/50 blended price score (higher = cheaper relative to both frameworks).
@@ -2622,6 +2649,15 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         bvps = fund["book_value_ps"]
         pb   = round(float(price) / float(bvps), 2) if bvps and float(bvps) > 0 else None
     row["PB_Ratio"] = pb
+
+    # ── NCAV / net-net (Graham enterprising sleeve) ──────────────────
+    nm = ncav_metrics(
+        price,
+        fund["current_assets"],
+        fund["total_liabilities"],
+        fund["shares_now"],
+    )
+    row.update(nm)
 
     # ── 3-yr avg EPS for Graham P/E check ───────────────────────────
     valid_eps   = [e for e in fund["annual_eps"] if e is not None and e == e]
