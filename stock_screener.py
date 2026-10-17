@@ -1365,6 +1365,31 @@ def _compute_ev_ebit(ebit, total_debt, cash, market_cap) -> tuple:
     return (ev / ebit, ebit / ev * 100)
 
 
+def _compute_roc_book(ebit, current_assets, current_liabilities, net_ppe) -> float | None:
+    """
+    Greenblatt's BOOK return on capital (whole-number percent).
+
+    ROC = EBIT / (Net Working Capital + Net Fixed Assets) * 100
+      NWC = current assets - current liabilities
+      NFA = net PPE (net property, plant & equipment)
+
+    This is the book's exact quality input (The Little Book That Beats the
+    Market).  It replaces the documented ROIC variant
+    (EBIT*0.79/(debt+equity-cash)) for Magic Formula ranking; ROIC_Pct is
+    retained as a reference column.  Tangible capital <= 0 -> None (data
+    anomaly).  Negative EBIT yields negative ROC (not clamped).
+    internal — for tests only.
+    """
+    if ebit is None or current_assets is None or current_liabilities is None:
+        return None
+    nwc = current_assets - current_liabilities
+    nfa = net_ppe if net_ppe is not None else 0
+    tangible = nwc + nfa
+    if tangible <= 0:
+        return None
+    return ebit / tangible * 100
+
+
 def _compute_roic(ebit, total_debt, equity, cash) -> float | None:
     """
     Compute ROIC as a whole-number percent.
@@ -2158,12 +2183,20 @@ def get_combined_data(ticker: str) -> dict:
         market_cap=mkt_cap,
     )
 
-    # ROIC
+    # ROIC (documented variant — retained as reference)
     roic = _compute_roic(
         ebit=yf_data["ebit"],
         total_debt=yf_data["total_debt"],
         equity=yf_data["equity"],
         cash=yf_data["cash"],
+    )
+
+    # Greenblatt book ROC — the formula's actual quality input
+    roc_book = _compute_roc_book(
+        ebit=yf_data["ebit"],
+        current_assets=yf_data["current_assets"],
+        current_liabilities=yf_data["current_liabilities"],
+        net_ppe=yf_data["net_ppe"],
     )
 
     # Shareholder yield — div_yield computed as whole-number percent (matches DivYield_Pct)
@@ -2221,6 +2254,7 @@ def get_combined_data(ticker: str) -> dict:
         "ev_ebit":               ev_ebit,
         "earnings_yield":        earnings_yield,
         "roic":                  roic,
+        "roc_book":              roc_book,
         "shareholder_yield":     shareholder_yield,
         "shareholder_yield_partial": sh_partial,
         # Phase 7 additions — raw statement DataFrames for Piotroski/Altman (D-05)
@@ -3134,6 +3168,11 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
     row["EV_EBIT"]                = _r2(ev_ebit)
     row["Earnings_Yield_Pct"]     = _r2(earnings_yield)
     row["ROIC_Pct"]               = _r2(fund["roic"])
+    # Book ROC is the Magic Formula quality input; None (never zero) for
+    # financials, mirroring the earnings-yield sector gate.
+    row["ROC_Book_Pct"]           = (_r2(fund["roc_book"])
+                                     if _sector_allows(fund, "earnings_yield")
+                                     else None)
     row["Shareholder_Yield_Pct"]  = _r2(fund["shareholder_yield"])
     row["shareholder_yield_partial"] = fund["shareholder_yield_partial"]
 

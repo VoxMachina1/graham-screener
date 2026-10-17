@@ -299,6 +299,7 @@ def test_negative_eps_is_retained_as_a_warning_not_a_fetch_error():
         "current_liabilities": 100.0,
         "total_liabilities": 150.0,
         "net_ppe": 300.0,
+        "roc_book": 12.5,
         "shares_now": 500.0,
         "diluted_shares": 500.0,
         "beta": 1.0,
