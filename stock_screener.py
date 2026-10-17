@@ -78,7 +78,10 @@ GRAHAM_BUY          = 0.80
 GRAHAM_WATCH        = 0.95
 
 # Category-specific Lynch buy discount factors
-LYNCH_DISCOUNT = {"Slow": 0.75, "Stalwart": 0.80, "Fast": 0.70}
+LYNCH_DISCOUNT = {"Slow": 0.75, "Stalwart": 0.80, "Fast": 0.70,
+                  # Judgment calls (no book values): deeper haircut for
+                  # turnaround risk; asset backing treated like a stalwart.
+                  "Cyclical": 0.70, "Turnaround": 0.60, "Asset Play": 0.80}
 
 # Sentinel discount for tickers with negative/zero growth or EPS that breaks
 # the Lynch/Graham formulas.  Plan 02's scorer maps this to sub-score 0 (worst).
@@ -2298,6 +2301,92 @@ def _eps_stable_for_gate(annual_eps: list) -> int | None:
     return 1 if all(e > 0 for e in eps) else 0
 
 
+# ── Lynch six-category classifier ──────────────────────────────────────────
+# 2026-10-16 project decision: all six Lynch categories, maximal accuracy.
+# Growth bands — Slow <10%, Stalwart 10–12% (tightened to the book),
+# Fast ≥12% (≥20% is the book's Fast Grower band; 12–20% is assigned to Fast
+# as a documented judgment call — the book names no band there).
+# Heuristic thresholds below are [ASSUMED] screen-grade judgments per the
+# audit-page sketches ("Columns available for tagging the three untagged
+# Lynch categories", 2026-10-16).
+# Precedence is a judgment call: Turnaround > Cyclical > Asset Play > band —
+# distress/inflection and sector cyclicality are the most distinctive
+# stories; balance-sheet cheapness is the residual tag.
+TURNAROUND_DIST_5Y_LOW_MAX   = 30.0   # % above 5y low -> "bombed-out"
+TURNAROUND_PIOTROSKI_MIN     = 5
+TURNAROUND_ALTMAN_MIN        = 1.1
+CYCLICAL_EPS_VARIABILITY_MIN = 1.5   # (max-min)/|mean| of annual EPS
+ASSET_PLAY_PB_MAX            = 1.0
+
+
+def _eps_variability(annual_eps) -> float | None:
+    """Range-over-|mean| of annual EPS; None when fewer than 3 valid prints."""
+    valid = [e for e in (annual_eps or []) if e is not None and e == e]
+    if len(valid) < 3:
+        return None
+    mean = sum(valid) / len(valid)
+    if mean == 0:
+        return None
+    return (max(valid) - min(valid)) / abs(mean)
+
+
+def _eps_sign_flips(annual_eps) -> int:
+    valid = [e for e in (annual_eps or []) if e is not None and e == e]
+    return sum(1 for a, b in zip(valid, valid[1:]) if (a > 0) != (b > 0))
+
+
+def lynch_classify(g, eps, sector, annual_eps, dist_5y_low, piotroski_f,
+                   altman_z, pb, current_ratio, long_term_debt,
+                   current_assets, current_liabilities,
+                   earnings_yield) -> tuple:
+    """
+    Classify a stock into one of Lynch's six categories.
+    Returns (category, detail).  Pure function — unit-testable.
+    """
+    valid_eps = [e for e in (annual_eps or []) if e is not None and e == e]
+
+    # 1) Turnaround — beaten-down name with earnings inflection + repair evidence
+    if (eps is not None and eps > 0
+            and any(e < 0 for e in valid_eps)
+            and dist_5y_low is not None and dist_5y_low <= TURNAROUND_DIST_5Y_LOW_MAX
+            and piotroski_f is not None and piotroski_f >= TURNAROUND_PIOTROSKI_MIN
+            and altman_z is not None and altman_z > TURNAROUND_ALTMAN_MIN):
+        return ("Turnaround",
+                f"EPS inflection after negative prints; Piotroski {piotroski_f}, "
+                f"Altman {altman_z:.2f}")
+
+    # 2) Cyclical — cyclical sector with highly variable earnings
+    var = _eps_variability(annual_eps)
+    if (sector in CYCLICAL_SECTORS
+            and var is not None
+            and (var >= CYCLICAL_EPS_VARIABILITY_MIN
+                 or _eps_sign_flips(annual_eps) >= 1)):
+        return ("Cyclical", f"{sector}; EPS variability {var:.2f}")
+
+    # 3) Asset Play — balance-sheet cheap with fortress finances
+    nwc = None
+    if current_assets is not None and current_liabilities is not None:
+        nwc = current_assets - current_liabilities
+    if (pb is not None and pb < ASSET_PLAY_PB_MAX
+            and current_ratio is not None and current_ratio >= MIN_CURRENT_RATIO
+            and long_term_debt is not None and nwc is not None and nwc > 0
+            and long_term_debt <= nwc
+            and earnings_yield is not None and earnings_yield > 0):
+        return ("Asset Play",
+                f"P/B {pb:.2f} with LT debt <= working capital")
+
+    # 4) Growth bands
+    if g is None or g <= 0:
+        return ("Unclassified", "no positive growth rate for banding")
+    if g < 10:
+        return ("Slow", "growth < 10%")
+    if g <= 12:
+        return ("Stalwart", "growth 10-12% (book band)")
+    if g < 20:
+        return ("Fast", "growth 12-20% (judgment band; book names no band here)")
+    return ("Fast", "growth >= 20% (book Fast Grower band)")
+
+
 def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     """
     Compute all Lynch valuation metrics.
@@ -2319,10 +2408,13 @@ def lynch_metrics(price: float, eps: float, g: float, dy: float) -> dict:
     m["FV_PEG_Con"]    = round(eps * 0.8 * g, 2)            # conservative (PEG=0.8)
     m["FV_GplusD"]     = round(eps * (g + dy), 2)           # G+D method
 
-    # Category — thresholds per Lynch's One Up on Wall Street (Ch. 8)
+    # Category — provisional growth band (One Up on Wall Street, Ch. 8;
+    # Stalwart tightened to the book's 10–12% per 2026-10-16 decision).
+    # The full six-category classifier (lynch_classify) overrides this
+    # downstream once Piotroski/Altman are computed.
     if g < 10:
         cat = "Slow"
-    elif g <= 20:
+    elif g <= 12:
         cat = "Stalwart"
     else:
         cat = "Fast"
@@ -2957,6 +3049,38 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
     # Phase 7 additive columns — distress signals + DCF (diagnostic + scoring)
     row["Piotroski_F"]           = piotroski_f  # int | None (no rounding)
     row["Altman_Z"]               = round(float(altman_z), 2) if altman_z is not None else None
+
+    # ── Lynch six-category classification (phase 2) ──────────────────
+    # lynch_metrics (above) used a provisional growth-band category for its
+    # valuation math.  Now that Piotroski/Altman and price signals are in,
+    # run the full six-category classifier and override the
+    # category-dependent outputs.  Runs even on sentinel rows (no Lynch
+    # valuation) so turnarounds etc. are still labeled.
+    lynch_cat, lynch_cat_detail = lynch_classify(
+        g=g,
+        eps=eps,
+        sector=fund["sector"],
+        annual_eps=fund["annual_eps"],
+        dist_5y_low=fund["dist_5y_low"],
+        piotroski_f=piotroski_f,
+        altman_z=altman_z,
+        pb=pb,
+        current_ratio=fund["current_ratio"],
+        long_term_debt=fund["long_term_debt"],
+        current_assets=fund["current_assets"],
+        current_liabilities=fund["current_liabilities"],
+        earnings_yield=fund["earnings_yield"],
+    )
+    row["Lynch_Category"] = lynch_cat
+    row["Lynch_Category_Detail"] = lynch_cat_detail
+    fv_gd = row.get("Lynch_FV_GplusD")
+    if fv_gd:
+        row["Lynch_BuyPrice"] = round(fv_gd * LYNCH_DISCOUNT[lynch_cat], 2) \
+            if lynch_cat in LYNCH_DISCOUNT else row.get("Lynch_BuyPrice")
+        if row.get("Lynch_BuyPrice"):
+            row["Lynch_Discount_Pct"] = round(
+                (1 - price / row["Lynch_BuyPrice"]) * 100, 1) \
+                if row["Lynch_BuyPrice"] > 0 else None
     row["DCF_Intrinsic_Value"]    = round(float(dcf_intrinsic), 2) if dcf_intrinsic is not None else None
     row["DCF_Value_Low"]          = _r2(dcf_result["value_low"]) if dcf_result else None
     row["DCF_Value_High"]         = _r2(dcf_result["value_high"]) if dcf_result else None
