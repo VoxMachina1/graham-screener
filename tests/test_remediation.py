@@ -313,7 +313,7 @@ def test_negative_eps_is_retained_as_a_warning_not_a_fetch_error():
 
     assert row["Error"] is None
     assert row["EPS_TTM"] == -1.0
-    assert row["Lynch_Lynch_Discount_Pct"] == screener.WORST_DISCOUNT
+    assert row["Lynch_Discount_Pct"] == screener.WORST_DISCOUNT
     assert row["Graham_Graham_Discount_Pct"] == screener.WORST_DISCOUNT
     assert "Non-positive EPS" in row["Valuation_Input_Warning"]
     assert row["OverallScore"] is not None
