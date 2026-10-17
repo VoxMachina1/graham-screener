@@ -45,9 +45,15 @@ FRED_AAA_SERIES     = "AAA"  # Moody's AAA corporate bond yield series on FRED
 FRED_RISK_FREE_SERIES = "DGS10"  # 10-year Treasury constant maturity rate
 
 # Graham defensive-investor filter thresholds
-MIN_MARKET_CAP_B    = 2.0    # minimum market cap in $B
-MIN_CURRENT_RATIO   = 2.0    # current assets / current liabilities
-MAX_DEBT_EQUITY     = 1.0    # long-term debt / equity
+MIN_CURRENT_RATIO   = 2.0    # current assets / current liabilities (unchanged)
+
+# ── Graham defensive criteria — literal form (2026-10-16, Resurrected Managers) ──
+# Graham, Intelligent Investor Ch.14 (1974): industrial companies "not less than
+# $100 million of annual sales"; public utilities "not less than $50 million of
+# total assets".  Inflation-adjusted here: CPI 1974 avg 49.3 -> 2025 avg ~320
+# (factor ~6.5), rounded.  Revisit if CPI moves materially.
+GRAHAM_MIN_SALES_USD          = 650_000_000   # $100M (1974) inflation-adjusted
+GRAHAM_MIN_UTILITY_ASSETS_USD = 325_000_000   # $50M (1974) inflation-adjusted
 MIN_POSITIVE_EPS_YRS = 8     # out of last 10 fiscal years
 MIN_DIV_YEARS       = 5      # paid dividend in at least N of last 10 years
 MIN_EPS_GROWTH_10Y  = 33.0   # cumulative % EPS growth over 10 years (~3%/yr)
@@ -1071,6 +1077,12 @@ CURRENT_LIABILITIES_LABELS = [
     "Current Liabilities Net Minority Interest",
 ]
 
+NET_PPE_LABELS = [
+    "Net PPE",
+    "Property Plant Equipment Net",
+    "Property Plant And Equipment Net",
+]
+
 LONG_TERM_DEBT_LABELS = [
     "Long Term Debt",
     "Long Term Debt And Capital Lease Obligation",
@@ -1947,6 +1959,13 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "prior_total_debt":   None,
         "cash":               None,
         "equity":             None,
+        "revenue_ttm":        None,
+        "total_assets":       None,
+        "long_term_debt":     None,
+        "current_assets":     None,
+        "current_liabilities": None,
+        "total_liabilities":  None,
+        "net_ppe":            None,
         "shares_now":         None,
         "shares_prev":        None,
         "diluted_shares":     None,
@@ -1990,6 +2009,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
                     break
             # EBIT from income statement (newest-first — NOT re-sorted here; use raw)
             result["ebit"] = _yf_row(t.income_stmt, EBIT_LABELS)
+            result["revenue_ttm"] = _yf_row(t.income_stmt, REVENUE_LABELS)
             result["interest_expense"] = _yf_row(t.income_stmt, INTEREST_EXPENSE_LABELS)
             result["tax_rate"] = _effective_tax_rate(t.income_stmt)
             result["diluted_shares"] = _yf_row(t.income_stmt, DILUTED_SHARES_LABELS)
@@ -2028,6 +2048,12 @@ def get_yf_price_and_history(ticker: str) -> dict:
             result["prior_total_debt"] = _extract_total_debt_prev(bs)
             result["cash"]       = _yf_row(bs, CASH_LABELS)
             result["equity"]     = _yf_row(bs, EQUITY_LABELS)
+            result["total_assets"]        = _yf_row(bs, TOTAL_ASSETS_LABELS)
+            result["long_term_debt"]      = _yf_row(bs, LONG_TERM_DEBT_LABELS)
+            result["current_assets"]      = _yf_row(bs, CURRENT_ASSETS_LABELS)
+            result["current_liabilities"] = _yf_row(bs, CURRENT_LIABILITIES_LABELS)
+            result["total_liabilities"]   = _yf_row(bs, TOTAL_LIABILITIES_LABELS)
+            result["net_ppe"]             = _yf_row(bs, NET_PPE_LABELS)
             # Shares outstanding: newest (col 0) and prior year (col 1)
             for label in SHARES_LABELS:
                 if label in bs.index:
@@ -2167,6 +2193,13 @@ def get_combined_data(ticker: str) -> dict:
         "total_debt":           yf_data["total_debt"],
         "prior_total_debt":     yf_data["prior_total_debt"],
         "cash":                 yf_data["cash"],
+        "revenue_ttm":          yf_data["revenue_ttm"],
+        "total_assets":         yf_data["total_assets"],
+        "long_term_debt":       yf_data["long_term_debt"],
+        "current_assets":       yf_data["current_assets"],
+        "current_liabilities":  yf_data["current_liabilities"],
+        "total_liabilities":    yf_data["total_liabilities"],
+        "net_ppe":              yf_data["net_ppe"],
         "shares_now":           yf_data["shares_now"],
         "diluted_shares":       yf_data["diluted_shares"],
         "beta":                 yf_data["beta"],
@@ -2415,9 +2448,13 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
 
 
 def graham_defensive_score(
-    market_cap_b: float | None,
+    revenue_ttm: float | None,
+    total_assets: float | None,
+    sector: str | None,
     current_ratio: float | None,
-    debt_equity: float | None,
+    long_term_debt: float | None,
+    current_assets: float | None,
+    current_liabilities: float | None,
     annual_eps: list,
     annual_dividends: list,
     price: float,
@@ -2427,17 +2464,37 @@ def graham_defensive_score(
     """
     Score each Graham defensive-investor criterion (0 or 1 per check).
     Returns score, breakdown, and Pass/Borderline/Fail label.
+
+    Size and debt use Graham's LITERAL tests (Intelligent Investor Ch.14),
+    not market-cap or total-D/E proxies:
+      Size — industrials: annual sales >= $100M (1974), inflation-adjusted;
+             public utilities: total assets >= $50M (1974), inflation-adjusted.
+      Debt — long-term debt must not exceed net current assets (working
+             capital).  Applied uniformly; Graham framed it for industrials.
     """
     checks = {}
 
-    # 1) Size
-    checks["Size_OK"]       = int(market_cap_b is not None and market_cap_b >= MIN_MARKET_CAP_B)
+    # 1) Size — literal Graham test (see constants for inflation math)
+    if sector == "Utilities":
+        checks["Size_OK"] = int(
+            total_assets is not None and total_assets >= GRAHAM_MIN_UTILITY_ASSETS_USD
+        )
+    else:
+        checks["Size_OK"] = int(
+            revenue_ttm is not None and revenue_ttm >= GRAHAM_MIN_SALES_USD
+        )
 
     # 2) Current ratio
     checks["CurrRatio_OK"]  = int(current_ratio is not None and current_ratio >= MIN_CURRENT_RATIO)
 
-    # 3) Debt/Equity
-    checks["DebtEq_OK"]     = int(debt_equity is not None and debt_equity <= MAX_DEBT_EQUITY)
+    # 3) Debt — long-term debt <= net current assets (working capital)
+    nwc = None
+    if current_assets is not None and current_liabilities is not None:
+        nwc = current_assets - current_liabilities
+    checks["Debt_OK"] = int(
+        long_term_debt is not None and nwc is not None and nwc > 0
+        and long_term_debt <= nwc
+    )
 
     # 4) Earnings stability — positive EPS in 8 of last 10 years
     valid_eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
@@ -2595,14 +2652,18 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
 
     # ── Graham defensive score ───────────────────────────────────────
     ds = graham_defensive_score(
-        market_cap_b     = mkt_cap_b,
-        current_ratio    = fund["current_ratio"],
-        debt_equity      = fund["debt_equity"],
-        annual_eps       = fund["annual_eps"],
-        annual_dividends = fund["annual_dividends"],
-        price            = price,
-        eps_3yr_avg      = eps_3yr_avg,
-        pb               = pb,
+        revenue_ttm        = fund["revenue_ttm"],
+        total_assets       = fund["total_assets"],
+        sector             = fund["sector"],
+        current_ratio      = fund["current_ratio"],
+        long_term_debt     = fund["long_term_debt"],
+        current_assets     = fund["current_assets"],
+        current_liabilities = fund["current_liabilities"],
+        annual_eps         = fund["annual_eps"],
+        annual_dividends   = fund["annual_dividends"],
+        price              = price,
+        eps_3yr_avg        = eps_3yr_avg,
+        pb                 = pb,
     )
     row.update(ds)
 
