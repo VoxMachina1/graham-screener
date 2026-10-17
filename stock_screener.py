@@ -2810,7 +2810,9 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         if "error" in gm:
             log.info(f"{ticker}: Graham formula error ({gm['error']}), routing to WORST_DISCOUNT")
             gm = {"Graham_Discount_Pct": WORST_DISCOUNT}
-    row.update({f"Graham_{k}": v for k, v in gm.items()})
+    # graham_metrics returns keys already prefixed ("Graham_VA", ...);
+    # do NOT re-prefix (would produce "Graham_Graham_VA").
+    row.update(gm)
 
     # ── Graham defensive score ───────────────────────────────────────
     ds = graham_defensive_score(
