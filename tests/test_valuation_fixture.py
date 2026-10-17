@@ -78,9 +78,9 @@ KO_INPUTS = {
 #   Graham_VB     = 2.50 * (7 + 7) * (4.4/5.5)
 #                 = 2.50 * 14.0 * 0.8
 #                 = 2.50 * 11.2             = 28.00
-#   Graham_FV     = min(45.00, 28.00)       = 28.00
-#   Graham_Discount_Pct = (1 - 70/28)*100  = (1 - 2.5)*100 = -150.0%
-#   Graham_Status: 70 > 0.95*28=26.6       → "Avoid"
+#   Graham_FV     = min(45.00, 28.00)       = 28.00   (reference column only)
+#   Graham_Discount_Pct = (1 - 70/45)*100  = (1 - 1.5556)*100 = -55.6%  (VA-based)
+#   Graham_Status: 70 > 0.95*45=42.75      → "Avoid"
 # ─────────────────────────────────────────────────────────────────────────────
 KO_EXPECTED = {
     # Lynch outputs
@@ -93,7 +93,7 @@ KO_EXPECTED = {
     "Graham_VA":          45.00,    # hand-computed; tolerance ±1.0
     "Graham_VB":          28.00,    # hand-computed; tolerance ±1.0
     "Graham_FV":          28.00,    # min(VA, VB) = VB (more conservative)
-    "Graham_Discount_Pct": -150.0,  # hand-computed; tolerance ±5
+    "Graham_Discount_Pct": -55.6,   # hand-computed off VA; tolerance ±5
     "Graham_Status":      "Avoid",
 }
 

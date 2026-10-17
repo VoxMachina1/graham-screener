@@ -2367,12 +2367,16 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
          intended conservative behavior.
 
     FV = min(VA, VB)  → always picks the more conservative (lower) value.
+    Retained as a REFERENCE column only.
+
+    2026-10-16 DECISION (Resurrected Managers): the portfolios and newsletter
+    use the canonical 1974 VA.  Graham_Status and Graham_Discount_Pct are
+    therefore computed off VA, and the defensive-sleeve rule ("Buy or Deep Buy
+    on the canonical VA fair value") reads these columns.  Graham_VB and
+    Graham_FV remain in the output for reference.
 
     AUDIT CONCLUSION: Both formulas are algebraically correct relative to their
-    definitions.  The "visibly wrong" buy prices are the expected output of a
-    conservative model: quality franchises trading at justified premiums
-    (e.g., KO at $70 with FV ≈ $28) will always show large negative discounts.
-    This is model conservatism, not a code defect.  See tests/test_valuation_fixture.py.
+    definitions.  See tests/test_valuation_fixture.py.
     """
     m = {}
 
@@ -2387,11 +2391,12 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
     # Version B — conservative practitioner variant: base P/E 7 + g (NOT from Graham's book)
     m["Graham_VB"] = round(eps * (7 + g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
-    # Use the more conservative (lower) of the two — intentional, see audit note above
+    # Reference: the more conservative (lower) of the two — NOT used for bands
     m["Graham_FV"] = min(m["Graham_VA"], m["Graham_VB"])
 
-    # Price band
-    fv = m["Graham_FV"]
+    # Price band — keyed off canonical VA per the 2026-10-16 project decision
+    # (portfolios/newsletter use VA; defensive sleeve reads VA-based status)
+    fv = m["Graham_VA"]
     if fv > 0:
         if price <= GRAHAM_DEEP_BUY * fv:
             m["Graham_Status"] = "Deep Buy"
