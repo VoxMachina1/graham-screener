@@ -45,7 +45,7 @@ FRED_AAA_SERIES     = "AAA"  # Moody's AAA corporate bond yield series on FRED
 FRED_RISK_FREE_SERIES = "DGS10"  # 10-year Treasury constant maturity rate
 
 # Graham defensive-investor filter thresholds
-MIN_CURRENT_RATIO   = 2.0    # current assets / current liabilities (unchanged)
+MIN_CURRENT_RATIO   = 2.0    # current assets / current liabilities
 
 # ── Graham defensive criteria — literal form (2026-10-16, Resurrected Managers) ──
 # Graham, Intelligent Investor Ch.14 (1974): industrial companies "not less than
@@ -54,8 +54,8 @@ MIN_CURRENT_RATIO   = 2.0    # current assets / current liabilities (unchanged)
 # (factor ~6.5), rounded.  Revisit if CPI moves materially.
 GRAHAM_MIN_SALES_USD          = 650_000_000   # $100M (1974) inflation-adjusted
 GRAHAM_MIN_UTILITY_ASSETS_USD = 325_000_000   # $50M (1974) inflation-adjusted
-MIN_POSITIVE_EPS_YRS = 8     # out of last 10 fiscal years
-MIN_DIV_YEARS       = 5      # paid dividend in at least N of last 10 years
+MIN_POSITIVE_EPS_YRS = 10    # literal Graham: no deficit in any of the last 10 years
+MIN_DIV_YEARS       = 20     # literal Graham: uninterrupted dividends for 20 years
 MIN_EPS_GROWTH_10Y  = 33.0   # cumulative % EPS growth over 10 years (~3%/yr)
 MAX_PE_GRAHAM       = 15.0   # P/E ≤ 15 (based on 3-yr avg EPS)
 MAX_PB_GRAHAM       = 1.5    # P/B ≤ 1.5
@@ -912,14 +912,18 @@ def fetch_risk_free_rate() -> float:
 # STEP 3 — FETCH FUNDAMENTALS
 # ═════════════════════════════════════════════
 # Data sources:
-#   yfinance  → price (fast_info), EPS history for defensive checks, dividends
+#   yfinance  → price (fast_info), short EPS history (Lynch growth anchor),
+#               corporate actions (splits for SEC EPS adjustment, dividend years)
+#   SEC EDGAR → 10Y annual diluted EPS for Graham defensive criteria (weekly cache)
 #   Finnhub   → EPS (current + growth), balance sheet ratios, market cap, BVPS
 #
 # Finnhub provides pre-calculated 5Y EPS CAGR and clean current-year values,
 # which are more reliable than computing CAGR from 4-5 years of yfinance data.
-# yfinance is kept for price (fastest) and historical EPS for defensive checks.
+# yfinance is kept for price (fastest) and short-window history; the defensive
+# criteria run on the split-adjusted SEC 10Y series.
 
 import yfinance as yf
+import sec_edgar_eps
 
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
@@ -1959,7 +1963,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
     reused yf.Ticker object per ticker (D-03/D-05).
 
     Returns: {
-        price, annual_eps, annual_dividends,
+        price, annual_eps, annual_dividends, splits, div_paid_years,
         sector,
         dist_52w_high, dist_52w_low, dist_5y_low,
         weeks_since_52w_low, weeks_since_5y_low, short_history,
@@ -1970,6 +1974,8 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "price":              None,
         "annual_eps":         [],
         "annual_dividends":   [],
+        "splits":             [],    # [(ex-date "YYYY-MM-DD", ratio new/old)] from actions
+        "div_paid_years":     set(),  # calendar years with total DPS > 0, from actions
         # Phase 6 additions
         "sector":             None,
         "dist_52w_high":      None,
@@ -2049,6 +2055,29 @@ def get_yf_price_and_history(ticker: str) -> dict:
             annual_divs = divs.resample("YE").sum()
             result["annual_dividends"] = [float(v) for v in annual_divs.values[-10:]]
 
+        # ── Corporate actions: splits (for SEC EPS split-adjustment) and
+        # full dividend-year history (for the literal 20-year record) ─────
+        try:
+            actions = t.actions
+            if actions is not None and not actions.empty:
+                if "Stock Splits" in actions.columns:
+                    sp = actions["Stock Splits"]
+                    sp = sp[sp > 0]
+                    result["splits"] = [
+                        (idx.date().isoformat(), float(val))
+                        for idx, val in sp.items()
+                    ]
+                if "Dividends" in actions.columns:
+                    dv = actions["Dividends"]
+                    dv = dv[dv > 0]
+                    paid = {}
+                    for idx, val in dv.items():
+                        y = idx.year
+                        paid[y] = paid.get(y, 0.0) + float(val)
+                    result["div_paid_years"] = {y for y, tot in paid.items() if tot > 0}
+        except Exception:
+            pass  # enhancements only; the core data stands without them
+
         # ── 5-year weekly history → price distance/recency signals ──────
         try:
             hist = t.history(period="5y", interval="1wk")
@@ -2116,6 +2145,17 @@ def get_combined_data(ticker: str) -> dict:
     """
     yf_data = get_yf_price_and_history(ticker)
     fh      = get_finnhub_metrics(ticker)
+
+    # ── SEC EDGAR 10Y annual EPS (split-adjusted) for defensive criteria ──
+    # Weekly-cached per CIK.  A failure leaves sec_eps None and the defensive
+    # EPS criteria honestly score 0 rather than falling back to a short window.
+    sec_eps = None
+    try:
+        raw_eps, period_ends, filed_dates = sec_edgar_eps.fetch_eps_details(ticker)
+        sec_eps = _apply_split_adjustment(
+            raw_eps, period_ends, filed_dates, yf_data.get("splits"))
+    except Exception as exc:  # noqa: BLE001 — degraded, not fatal
+        log.warning(f"{ticker}: SEC EPS unavailable ({exc}); defensive EPS criteria score 0")
 
     # ── Price (yfinance is fastest) ─────────────────────────────────
     price = yf_data["price"]
@@ -2211,7 +2251,9 @@ def get_combined_data(ticker: str) -> dict:
         "price":            price,
         "finnhub_ok":       bool(fh),
         "market_cap_b":     mkt_cap_b,
-        "annual_eps":       yf_data["annual_eps"],      # historical list for defensive checks
+        "annual_eps":       yf_data["annual_eps"],      # short yfinance history (Lynch anchor)
+        "sec_eps_series":   sec_eps,                    # split-adjusted SEC {fiscal_year: EPS} or None
+        "div_paid_years":   yf_data.get("div_paid_years") or set(),
         "annual_dividends": yf_data["annual_dividends"],
         "ttm_eps":          ttm_eps,
         "ttm_dps":          ttm_dps,
@@ -2270,6 +2312,61 @@ def get_combined_data(ticker: str) -> dict:
 # STEP 4 — COMPUTE METRICS
 # ═════════════════════════════════════════════
 
+def _apply_split_adjustment(
+    eps_series: dict,
+    period_ends: dict,
+    filed_dates: dict,
+    splits: list,
+) -> dict | None:
+    """
+    Restate pre-split fiscal years to post-split per-share basis.
+
+    The SEC series takes each year's figure from the most recently filed 10-K
+    that presents it, and a 10-K retroactively restates all its comparative
+    EPS for splits before its filing date.  So for each split (ex-date,
+    ratio=new/old), a fiscal year is divided by the split ratio only when the
+    split happened AFTER that year's winning filing — otherwise the 10-K
+    already restated it and adjusting again would double-count (this is
+    exactly what naive period-end dating gets wrong for splits in the last
+    ~3 years, e.g. AAPL's 2020 4:1 split vs its restated FY2018/FY2019).
+    Years without a known filing date fall back to period-end dating, then to
+    calendar-year granularity (split year > fiscal year ⇒ pre-split).
+    Returns a new {fiscal_year: adjusted EPS} dict, or None if no series.
+    """
+    if not eps_series:
+        return None
+    parsed = []
+    for d, r in splits or []:
+        try:
+            parsed.append((datetime.strptime(d, "%Y-%m-%d").date(), float(r)))
+        except (ValueError, TypeError):
+            continue
+    parsed = [(d, r) for d, r in parsed if r > 0]
+
+    def _parse(raw):
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date() if raw else None
+        except (ValueError, TypeError):
+            return None
+
+    adjusted = {}
+    for year, eps in eps_series.items():
+        filed_d = _parse((filed_dates or {}).get(year))
+        end_d = _parse((period_ends or {}).get(year))
+        factor = 1.0
+        for d, r in parsed:
+            if filed_d is not None:
+                if d > filed_d:
+                    factor *= r
+            elif end_d is not None:
+                if d > end_d:
+                    factor *= r
+            elif d.year > year:
+                factor *= r
+        adjusted[year] = round(eps / factor, 4) if factor != 1.0 else eps
+    return adjusted
+
+
 def compute_growth_5yr_cagr(annual_eps: list) -> float | None:
     """
     EPS CAGR using the longest available window up to 5 years.
@@ -2322,12 +2419,11 @@ def _eps_stable_for_gate(annual_eps: list) -> int | None:
     """
     Window-appropriate EPS-stability signal for the value-trap gate (Bug A fix).
 
-    The defensive ``EPS_Stability`` criterion uses an 8-of-10-year rule, but yfinance
-    supplies only ~4 years of annual EPS, so it is structurally 0 for every ticker —
-    which tripped the trap gate (and floored the Safety pillar to 0) for the entire
-    universe, making both signals useless.  Instead, judge stability over the
-    *available* window: stable (1) only if every available year had positive EPS;
-    unstable (0) if any year was <= 0; None when too few years to judge (D-01b unknown).
+    The defensive ``EPS_Stability`` criterion now runs the literal 10-of-10-year
+    rule on SEC data, but the trap gate keeps a window-appropriate signal over
+    yfinance's short history so a missing/failed SEC fetch can't distort it:
+    stable (1) only if every available year had positive EPS; unstable (0) if
+    any year was <= 0; None when too few years to judge (D-01b unknown).
     """
     eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
     if len(eps) < 2:
@@ -2586,6 +2682,8 @@ def graham_defensive_score(
     price: float,
     eps_3yr_avg: float | None,
     pb: float | None,
+    sec_eps_series: dict | None = None,
+    div_paid_years: set | None = None,
 ) -> dict:
     """
     Score each Graham defensive-investor criterion (0 or 1 per check).
@@ -2597,8 +2695,22 @@ def graham_defensive_score(
              public utilities: total assets >= $50M (1974), inflation-adjusted.
       Debt — long-term debt must not exceed net current assets (working
              capital).  Applied uniformly; Graham framed it for industrials.
+
+    The EPS-history criteria (stability, 10Y growth) run on the split-adjusted
+    SEC 10Y series; the dividend record runs on 20 calendar years of yfinance
+    corporate actions.  annual_eps feeds the P/E×P/B guard; annual_dividends
+    remains in the signature for existing callers.
     """
     checks = {}
+
+    # Short-window yfinance history, kept for the criterion-8 P/E×P/B guard.
+    valid_eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
+    sec_years = sorted(sec_eps_series) if sec_eps_series else []
+    sec_window = sec_years[-MIN_POSITIVE_EPS_YRS:]
+    has_full_decade = (
+        len(sec_window) == MIN_POSITIVE_EPS_YRS
+        and sec_window == list(range(sec_window[0], sec_window[0] + MIN_POSITIVE_EPS_YRS))
+    )
 
     # 1) Size — literal Graham test (see constants for inflation math)
     if sector == "Utilities":
@@ -2622,19 +2734,43 @@ def graham_defensive_score(
         and long_term_debt <= nwc
     )
 
-    # 4) Earnings stability — positive EPS in 8 of last 10 years
-    valid_eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
-    pos_eps_yrs = sum(1 for e in valid_eps[-10:] if e > 0)
-    checks["EPS_Stability"]  = int(pos_eps_yrs >= MIN_POSITIVE_EPS_YRS)
+    # 4) Earnings stability — positive EPS in EVERY one of the last 10 years
+    # (literal Graham). Without 10 years of SEC history the test cannot be
+    # satisfied and scores 0 — no partial credit for a shorter window.
+    if has_full_decade:
+        checks["EPS_Stability"] = int(
+            all(sec_eps_series[y] is not None and sec_eps_series[y] > 0 for y in sec_window)
+        )
+    else:
+        checks["EPS_Stability"] = 0
 
-    # 5) Dividend record — paid in 5 of last 10 years
-    div_years = sum(1 for d in annual_dividends[-10:] if d is not None and d > 0)
-    checks["Div_Record"]    = int(div_years >= MIN_DIV_YEARS)
+    # 5) Dividend record — uninterrupted payments for 20 years (literal
+    # Graham). div_paid_years holds calendar years with total DPS > 0 from
+    # yfinance corporate actions; anything short of 20 straight full years
+    # fails — no partial credit, no fallback to a shorter window.
+    if div_paid_years:
+        last_full_year = datetime.now().year - 1
+        need = set(range(last_full_year - MIN_DIV_YEARS + 1, last_full_year + 1))
+        checks["Div_Record"] = int(need.issubset(div_paid_years))
+    else:
+        checks["Div_Record"] = 0
 
-    # 6) 10-year EPS growth ≥ 33% cumulative
-    if len(valid_eps) >= 10 and valid_eps[-10] > 0:
-        cum_growth = (valid_eps[-1] / valid_eps[-10] - 1) * 100
-        checks["EPS_Growth10Y"] = int(cum_growth >= MIN_EPS_GROWTH_10Y)
+    # 6) 10-year EPS growth ≥ 33% — Graham compares the average EPS of the
+    # first 3 years of the decade against the average of the last 3 years
+    # (Intelligent Investor ch. 14), not single endpoints. Split-adjusted SEC
+    # series; needs 10 years and positive averages on both ends.
+    if has_full_decade:
+        first3 = [sec_eps_series[y] for y in sec_window[:3]]
+        last3  = [sec_eps_series[y] for y in sec_window[-3:]]
+        if all(v is not None for v in first3 + last3):
+            avg_first, avg_last = sum(first3) / 3, sum(last3) / 3
+            if avg_first > 0 and avg_last > 0:
+                cum_growth = (avg_last / avg_first - 1) * 100
+                checks["EPS_Growth10Y"] = int(cum_growth >= MIN_EPS_GROWTH_10Y)
+            else:
+                checks["EPS_Growth10Y"] = 0
+        else:
+            checks["EPS_Growth10Y"] = 0
     else:
         checks["EPS_Growth10Y"] = 0
 
@@ -2786,8 +2922,16 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
     row.update(nm)
 
     # ── 3-yr avg EPS for Graham P/E check ───────────────────────────
-    valid_eps   = [e for e in fund["annual_eps"] if e is not None and e == e]
-    eps_3yr_avg = sum(valid_eps[-3:]) / len(valid_eps[-3:]) if len(valid_eps) >= 3 else None
+    # Literal Graham uses a 3-year average; prefer the split-adjusted SEC
+    # series and fall back to yfinance history when SEC data is missing.
+    _sec = fund.get("sec_eps_series") or {}
+    _sec_years = sorted(_sec)
+    if len(_sec_years) >= 3:
+        _last3 = [_sec[y] for y in _sec_years[-3:]]
+        eps_3yr_avg = sum(_last3) / 3 if all(v is not None for v in _last3) else None
+    else:
+        valid_eps   = [e for e in fund["annual_eps"] if e is not None and e == e]
+        eps_3yr_avg = sum(valid_eps[-3:]) / len(valid_eps[-3:]) if len(valid_eps) >= 3 else None
 
     # ── Lynch ───────────────────────────────────────────────────────
     # D-01: if negative/zero EPS or growth causes an error-return, retain the row
@@ -2832,6 +2976,8 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         price              = price,
         eps_3yr_avg        = eps_3yr_avg,
         pb                 = pb,
+        sec_eps_series   = fund.get("sec_eps_series"),
+        div_paid_years   = fund.get("div_paid_years"),
     )
     row.update(ds)
 
@@ -2855,9 +3001,9 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         growth_stability = None
 
     # ── Trap gate (TRAP-01 / D-04) ───────────────────────────────────
-    # Bug A fix: the defensive EPS_Stability uses an 8-of-10-year rule, but yfinance
-    # supplies only ~4 years, so it was structurally 0 and tripped the gate for EVERY
-    # ticker (dead Safety pillar). Use a window-appropriate stability signal instead.
+    # The defensive EPS_Stability criterion now uses the literal 10-of-10 rule on
+    # SEC data; the trap gate deliberately keeps this window-appropriate yfinance
+    # signal so SEC outages can't trip the gate universe-wide.
     eps_stab_for_gate = _eps_stable_for_gate(fund["annual_eps"])
     trap_fcf_metric = (
         fund["fcf_yield"] if fund.get("fcf_yield") is not None

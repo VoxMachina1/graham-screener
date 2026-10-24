@@ -146,7 +146,8 @@ def load_ticker_map(refresh=False):
 # ---------------------------------------------------------------------------
 
 def _extract_annual_eps(companyfacts):
-    """Pull {fiscal_year: diluted EPS} from a companyfacts payload.
+    """Pull ({fiscal_year: diluted EPS}, {fiscal_year: period-end "YYYY-MM-DD"},
+    {fiscal_year: winning-filing "YYYY-MM-DD"}) from a companyfacts payload.
 
     Uses us-gaap EarningsPerShareDiluted, 10-K (annual) filings only, falling
     back to EarningsPerShareBasic when a filer tags no diluted concept
@@ -210,16 +211,26 @@ def _extract_annual_eps(companyfacts):
         for yr, qs in sorted(by_year.items()):
             if len(qs) == 4:
                 by_period["%d-12-31" % yr] = (sum(qs), "")
-    series = {}
-    for end, (eps, _) in sorted(by_period.items()):
+    series, ends, filed = {}, {}, {}
+    for end, (eps, filed_date) in sorted(by_period.items()):
         fy = int(end[:4])
-        series[fy] = round(eps, 4)   # one annual figure per period end
-    return series
+        series[fy] = round(eps, 4)  # one annual figure per period end
+        ends[fy] = end             # period end the screener uses for split dating
+        if filed_date:
+            # A 10-K retroactively restates comparatives for splits before its
+            # filing date — so a split only needs manual adjustment for years
+            # whose winning filing PREDATES the split.
+            filed[fy] = filed_date
+    return series, ends, filed
 
 
-def fetch_eps_series(ticker, refresh=False):
-    """Return {fiscal_year: diluted EPS} for a ticker, cached weekly.
+def _fetch_eps_data(ticker, refresh=False):
+    """Return ({fiscal_year: diluted EPS}, {fiscal_year: period-end date},
+    {fiscal_year: winning-filing date}).
 
+    Single cached fetch backing the public helpers below — one HTTP call
+    serves the EPS values plus the dates the screener needs for split
+    adjustment. Cached weekly per CIK.
     Raises ValueError for unknown tickers, RuntimeError on fetch failure.
     """
     ticker = ticker.upper().strip()
@@ -236,16 +247,47 @@ def fetch_eps_series(ticker, refresh=False):
     cache_path = _cache_path("eps_%010d" % cik)
     if not refresh:
         cached = _cache_load(cache_path)
-        if cached is not None:
-            return {int(k): v for k, v in cached.items()}
+        # v3 cache holds {"eps": {...}, "ends": {...}, "filed": {...}};
+        # anything older or unexpected is treated as a miss and refetched.
+        if (isinstance(cached, dict) and "eps" in cached
+                and "ends" in cached and "filed" in cached):
+            return ({int(k): v for k, v in cached["eps"].items()},
+                    {int(k): v for k, v in cached["ends"].items()},
+                    {int(k): v for k, v in cached["filed"].items()})
     try:
         payload = _get_json(COMPANYFACTS_URL.format(cik=cik))
     except Exception as exc:  # noqa: BLE001 — surface as-is, no silent gaps
         raise RuntimeError("SEC companyfacts fetch failed for %s: %s" % (ticker, exc))
     time.sleep(REQUEST_PAUSE_SECONDS)
-    series = _extract_annual_eps(payload)
-    _cache_save(cache_path, series)
+    series, ends, filed = _extract_annual_eps(payload)
+    _cache_save(cache_path, {"eps": series, "ends": ends, "filed": filed})
+    return series, ends, filed
+
+
+def fetch_eps_details(ticker, refresh=False):
+    """Return ({fiscal_year: diluted EPS}, {fiscal_year: period-end "YYYY-MM-DD"},
+    {fiscal_year: winning-filing "YYYY-MM-DD"}).
+
+    The dates let the screener restate pre-split fiscal years to post-split
+    per-share basis without double-counting restatements the 10-K already
+    made. Cached weekly.
+    """
+    return _fetch_eps_data(ticker, refresh=refresh)
+
+
+def fetch_eps_series(ticker, refresh=False):
+    """Return {fiscal_year: diluted EPS} for a ticker, cached weekly.
+
+    Raises ValueError for unknown tickers, RuntimeError on fetch failure.
+    """
+    series, _, _ = _fetch_eps_data(ticker, refresh=refresh)
     return series
+
+
+def fetch_eps_period_ends(ticker, refresh=False):
+    """Return {fiscal_year: period-end "YYYY-MM-DD"} for a ticker, cached weekly."""
+    _, ends, _ = _fetch_eps_data(ticker, refresh=refresh)
+    return ends
 
 
 def ten_year_growth(eps_series, end_year=None):
