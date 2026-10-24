@@ -3588,7 +3588,12 @@ def _validate_output_dataframe(df: pd.DataFrame) -> dict:
     }
 
 
-def write_json(df: pd.DataFrame) -> None:
+def write_json(
+    df: pd.DataFrame,
+    output_path: Path = OUTPUT_PATH,
+    stats_path: Path = STATS_PATH,
+    metadata: dict | None = None,
+) -> None:
     try:
         validation = _validate_output_dataframe(df)
     except ValueError as exc:
@@ -3602,7 +3607,7 @@ def write_json(df: pd.DataFrame) -> None:
         f"Finnhub {validation['finnhub_fraction']:.1%}; "
         f"FCFF DCF {validation['dcf_rows']} rows"
     )
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     rows = json.loads(df.to_json(orient="records"))
     # Build nested scores object post-serialization (SCORE-05 / Pitfall 3).
     # Constructing here rather than storing a dict in a DataFrame column avoids
@@ -3628,19 +3633,21 @@ def write_json(df: pd.DataFrame) -> None:
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "rows": rows,
     }
-    OUTPUT_PATH.write_text(
+    if metadata:
+        payload.update(metadata)
+    output_path.write_text(
         json.dumps(payload, separators=(",", ":")),
         encoding="utf-8",
     )
-    log.info(f"Results written to {OUTPUT_PATH} ({len(rows)} rows)")
+    log.info(f"Results written to {output_path} ({len(rows)} rows)")
 
     # Phase 7 (PAGE-02 / D-15) — universe-level stats for stats.html.
     # No separate row-count guard needed: this code path is unreachable when
     # len(df) < 100 (the guard above already exits).
     stats = _compute_stats(df)
-    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATS_PATH.write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")
-    log.info(f"Stats written to {STATS_PATH}")
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    stats_path.write_text(json.dumps(stats, separators=(",", ":")), encoding="utf-8")
+    log.info(f"Stats written to {stats_path}")
 
 
 def update_snapshot_manifest(filename: str) -> None:
