@@ -2737,9 +2737,13 @@ def graham_defensive_score(
     # 4) Earnings stability — positive EPS in EVERY one of the last 10 years
     # (literal Graham). Without 10 years of SEC history the test cannot be
     # satisfied and scores 0 — no partial credit for a shorter window.
+    positive_eps_years = None
     if has_full_decade:
+        positive_eps_years = sum(
+            sec_eps_series[y] is not None and sec_eps_series[y] > 0 for y in sec_window
+        )
         checks["EPS_Stability"] = int(
-            all(sec_eps_series[y] is not None and sec_eps_series[y] > 0 for y in sec_window)
+            positive_eps_years == MIN_POSITIVE_EPS_YRS
         )
     else:
         checks["EPS_Stability"] = 0
@@ -2801,7 +2805,8 @@ def graham_defensive_score(
     else:
         label = "Fail"
 
-    return {"DefensiveScore": score, "DefensiveLabel": label, **checks}
+    return {"DefensiveScore": score, "DefensiveLabel": label,
+            "EPS_Positive_Years_10": positive_eps_years, **checks}
 
 
 def ncav_metrics(price: float, current_assets: float | None,

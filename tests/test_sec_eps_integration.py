@@ -143,6 +143,7 @@ def test_stability_one_deficit_year_fails():
     s[2020] = -0.5
     ds = graham_defensive_score(**_base_kwargs(sec_eps_series=s))
     assert ds["EPS_Stability"] == 0, ds
+    assert ds["EPS_Positive_Years_10"] == 9, ds
 
 
 def test_stability_short_history_fails():
@@ -158,6 +159,7 @@ def test_missing_fiscal_year_does_not_count_as_full_decade():
     ds = graham_defensive_score(**_base_kwargs(sec_eps_series=s))
     assert ds["EPS_Stability"] == 0, ds
     assert ds["EPS_Growth10Y"] == 0, ds
+    assert ds["EPS_Positive_Years_10"] is None, ds
 
 
 def test_stability_no_sec_data_fails():
