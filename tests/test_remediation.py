@@ -292,6 +292,14 @@ def test_negative_eps_is_retained_as_a_warning_not_a_fetch_error():
         "total_debt": 100.0,
         "prior_total_debt": 100.0,
         "cash": 20.0,
+        "revenue_ttm": 1_000_000_000.0,
+        "total_assets": 2_000_000_000.0,
+        "long_term_debt": 50.0,
+        "current_assets": 200.0,
+        "current_liabilities": 100.0,
+        "total_liabilities": 150.0,
+        "net_ppe": 300.0,
+        "roc_book": 12.5,
         "shares_now": 500.0,
         "diluted_shares": 500.0,
         "beta": 1.0,
@@ -305,8 +313,8 @@ def test_negative_eps_is_retained_as_a_warning_not_a_fetch_error():
 
     assert row["Error"] is None
     assert row["EPS_TTM"] == -1.0
-    assert row["Lynch_Lynch_Discount_Pct"] == screener.WORST_DISCOUNT
-    assert row["Graham_Graham_Discount_Pct"] == screener.WORST_DISCOUNT
+    assert row["Lynch_Discount_Pct"] == screener.WORST_DISCOUNT
+    assert row["Graham_Discount_Pct"] == screener.WORST_DISCOUNT
     assert "Non-positive EPS" in row["Valuation_Input_Warning"]
     assert row["OverallScore"] is not None
 
