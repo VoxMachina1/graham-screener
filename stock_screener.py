@@ -3345,9 +3345,9 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
     row["ROC_Book_Pct"]           = (_r2(fund["roc_book"])
                                      if _sector_allows(fund, "earnings_yield")
                                      else None)
-    row["EBIT_USD"]               = _r2(fund.get("ebit"))
-    row["EV_USD"]                 = _r2(fund.get("enterprise_value"))
-    row["Tangible_Capital_USD"]   = _r2(fund.get("tangible_capital"))
+    row["EBIT_Raw"]               = _r2(fund.get("ebit"))
+    row["EV_Raw"]                 = _r2(fund.get("enterprise_value"))
+    row["Tangible_Capital_Raw"]   = _r2(fund.get("tangible_capital"))
     row["MarketCap_USD"]          = _r2(fund.get("market_cap_usd"))
     row["Shareholder_Yield_Pct"]  = _r2(fund["shareholder_yield"])
     row["shareholder_yield_partial"] = fund["shareholder_yield_partial"]
