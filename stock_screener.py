@@ -1380,15 +1380,15 @@ def _compute_roc_book(ebit, current_assets, current_liabilities, net_ppe) -> flo
     This is the book's exact quality input (The Little Book That Beats the
     Market).  It replaces the documented ROIC variant
     (EBIT*0.79/(debt+equity-cash)) for Magic Formula ranking; ROIC_Pct is
-    retained as a reference column.  Tangible capital <= 0 -> None (data
-    anomaly).  Negative EBIT yields negative ROC (not clamped).
+    retained as a reference column.  Missing PPE or non-positive tangible
+    capital -> None. Negative EBIT yields negative ROC (not clamped).
     internal — for tests only.
     """
-    if ebit is None or current_assets is None or current_liabilities is None:
+    if (ebit is None or current_assets is None or current_liabilities is None
+            or net_ppe is None):
         return None
     nwc = current_assets - current_liabilities
-    nfa = net_ppe if net_ppe is not None else 0
-    tangible = nwc + nfa
+    tangible = nwc + net_ppe
     if tangible <= 0:
         return None
     return ebit / tangible * 100
@@ -2238,6 +2238,17 @@ def get_combined_data(ticker: str) -> dict:
         current_liabilities=yf_data["current_liabilities"],
         net_ppe=yf_data["net_ppe"],
     )
+    enterprise_value = (
+        mkt_cap + yf_data["total_debt"] - yf_data["cash"]
+        if all(value is not None for value in
+               (mkt_cap, yf_data["total_debt"], yf_data["cash"])) else None
+    )
+    tangible_capital = (
+        yf_data["current_assets"] - yf_data["current_liabilities"] + yf_data["net_ppe"]
+        if all(value is not None for value in
+               (yf_data["current_assets"], yf_data["current_liabilities"], yf_data["net_ppe"]))
+        else None
+    )
 
     # Shareholder yield — div_yield computed as whole-number percent (matches DivYield_Pct)
     div_yield_pct = (float(ttm_dps) / float(price) * 100.0) if (price and ttm_dps) else 0.0
@@ -2251,6 +2262,10 @@ def get_combined_data(ticker: str) -> dict:
         "price":            price,
         "finnhub_ok":       bool(fh),
         "market_cap_b":     mkt_cap_b,
+        "market_cap_usd":   mkt_cap,
+        "ebit":             yf_data["ebit"],
+        "enterprise_value": enterprise_value,
+        "tangible_capital": tangible_capital,
         "annual_eps":       yf_data["annual_eps"],      # short yfinance history (Lynch anchor)
         "sec_eps_series":   sec_eps,                    # split-adjusted SEC {fiscal_year: EPS} or None
         "div_paid_years":   yf_data.get("div_paid_years") or set(),
@@ -3330,6 +3345,10 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
     row["ROC_Book_Pct"]           = (_r2(fund["roc_book"])
                                      if _sector_allows(fund, "earnings_yield")
                                      else None)
+    row["EBIT_USD"]               = _r2(fund.get("ebit"))
+    row["EV_USD"]                 = _r2(fund.get("enterprise_value"))
+    row["Tangible_Capital_USD"]   = _r2(fund.get("tangible_capital"))
+    row["MarketCap_USD"]          = _r2(fund.get("market_cap_usd"))
     row["Shareholder_Yield_Pct"]  = _r2(fund["shareholder_yield"])
     row["shareholder_yield_partial"] = fund["shareholder_yield_partial"]
 

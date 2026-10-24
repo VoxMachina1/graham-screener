@@ -19,10 +19,10 @@ def test_differs_from_roic_variant():
     print("OK no tax factor, tangible capital base")
 
 
-def test_missing_ppe_ok():
-    # net PPE missing -> treated as 0, NWC alone is the base
-    assert _compute_roc_book(100.0, 400.0, 100.0, None) == 100.0 / 300.0 * 100
-    print("OK missing PPE")
+def test_missing_ppe_excluded():
+    # Book ROC cannot be certified without net fixed assets.
+    assert _compute_roc_book(100.0, 400.0, 100.0, None) is None
+    print("OK missing PPE excluded")
 
 
 def test_nonpositive_tangible_none():
@@ -44,7 +44,7 @@ def test_negative_ebit_not_clamped():
 if __name__ == "__main__":
     test_book_formula()
     test_differs_from_roic_variant()
-    test_missing_ppe_ok()
+    test_missing_ppe_excluded()
     test_nonpositive_tangible_none()
     test_missing_inputs_none()
     test_negative_ebit_not_clamped()
