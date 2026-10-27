@@ -38,6 +38,7 @@ jobs:
           path: |
             docs/data/results_smallcap.json
             docs/data/stats_smallcap.json
+            docs/data/holdings_smallcap.csv
           retention-days: 14
           if-no-files-found: error
       - name: Publish pilot data
