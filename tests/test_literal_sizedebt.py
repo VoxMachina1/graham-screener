@@ -82,9 +82,9 @@ def test_check_names_in_output():
     r = _base()
     assert "Debt_OK" in r and "Size_OK" in r, r.keys()
     assert "DebtEq_OK" not in r, "old proxy check name must be gone"
-    assert r["DefensiveScore"] == sum(
-        v for k, v in r.items()
-        if k not in ("DefensiveScore", "DefensiveLabel", "EPS_Positive_Years_10")), r
+    assert r["DefensiveScore"] == sum(r[k] for k in (
+        "Size_OK", "CurrRatio_OK", "Debt_OK", "EPS_Stability", "Div_Record",
+        "EPS_Growth10Y", "PE_Limit", "PB_Limit")), r
     print("OK check names + score consistency")
 
 

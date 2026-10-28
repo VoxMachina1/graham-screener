@@ -25,7 +25,8 @@ var SIGNAL_COLORS = {
     "Watch": "yellow", "Avoid": "red"
   },
   DefensiveLabel: {
-    "Pass": "green", "Borderline": "yellow", "Fail": "red"
+    "Pass": "green", "Research": "yellow", "Sector review": "yellow",
+    "Borderline": "yellow", "Fail": "red"
   },
   Lynch_PEG_Status: {
     "Cheap": "green", "Reasonable": "yellow", "Rich": "red"
