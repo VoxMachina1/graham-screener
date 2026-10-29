@@ -31,15 +31,22 @@ def _ticker(annual, quarterly):
     )
 
 
-def test_latest_quarter_replaces_annual_point_in_time_ncav(monkeypatch):
+def _screen_with(annual, quarterly):
+    original = screener.yf.Ticker
+    try:
+        screener.yf.Ticker = lambda _: _ticker(annual, quarterly)
+        return screener.get_yf_price_and_history("TEST")
+    finally:
+        screener.yf.Ticker = original
+
+
+def test_latest_quarter_replaces_annual_point_in_time_ncav():
     annual = pd.concat([
         _sheet("2025-12-31", 300_000_000, 100_000_000, 100_000_000),
         _sheet("2024-12-31", 290_000_000, 110_000_000, 110_000_000),
     ], axis=1)
     quarter = _sheet("2026-06-30", 240_000_000, 100_000_000, 80_000_000)
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _: _ticker(annual, quarter))
-
-    result = screener.get_yf_price_and_history("TEST")
+    result = _screen_with(annual, quarter)
 
     assert result["current_assets"] == 240_000_000
     assert result["total_liabilities"] == 100_000_000
@@ -51,25 +58,28 @@ def test_latest_quarter_replaces_annual_point_in_time_ncav(monkeypatch):
                                  result["total_liabilities"], result["ncav_shares"])["NCAV"] == 140_000_000
 
 
-def test_older_quarter_does_not_replace_newer_annual(monkeypatch):
+def test_older_quarter_does_not_replace_newer_annual():
     annual = _sheet("2025-12-31", 300, 100, 10)
     quarter = _sheet("2025-09-30", 240, 90, 8)
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _: _ticker(annual, quarter))
-
-    result = screener.get_yf_price_and_history("TEST")
+    result = _screen_with(annual, quarter)
 
     assert result["current_assets"] == 300
     assert result["ncav_shares"] == 10
 
 
-def test_missing_quarterly_shares_blocks_ncav(monkeypatch):
+def test_missing_quarterly_shares_blocks_ncav():
     annual = _sheet("2025-12-31", 300, 100, 10)
     quarter = _sheet("2026-06-30", 240, 90, 8).drop(index="Ordinary Shares Number")
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _: _ticker(annual, quarter))
-
-    result = screener.get_yf_price_and_history("TEST")
+    result = _screen_with(annual, quarter)
 
     assert result["current_assets"] == 240
     assert result["ncav_shares"] is None
     assert screener.ncav_metrics(1.0, result["current_assets"],
                                  result["total_liabilities"], result["ncav_shares"])["NetNet"] is None
+
+
+if __name__ == "__main__":
+    test_latest_quarter_replaces_annual_point_in_time_ncav()
+    test_older_quarter_does_not_replace_newer_annual()
+    test_missing_quarterly_shares_blocks_ncav()
+    print("Latest balance-sheet regression checks passed")
