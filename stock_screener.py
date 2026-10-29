@@ -2002,6 +2002,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "net_ppe":            None,
         "shares_now":         None,
         "shares_prev":        None,
+        "ncav_shares":        None,
         "diluted_shares":     None,
         "market_cap":         None,
         "beta":               None,
@@ -2098,11 +2099,24 @@ def get_yf_price_and_history(ticker: str) -> dict:
             result["ocf"]   = _yf_row(cf, OCF_LABELS)
             result["capex"] = _yf_row(cf, CAPEX_LABELS)
 
-        # ── Balance sheet — debt, cash, equity, shares ──────────────────
-        bs = t.balance_sheet
+        # ── Balance sheet — current values from the newest available period ──
+        annual_bs = t.balance_sheet
+        if annual_bs is not None and not annual_bs.empty:
+            annual_bs = annual_bs.sort_index(axis=1, ascending=False)
+        try:
+            quarterly_bs = t.quarterly_balance_sheet
+        except Exception:
+            quarterly_bs = None
+        if quarterly_bs is not None and not quarterly_bs.empty:
+            quarterly_bs = quarterly_bs.sort_index(axis=1, ascending=False)
+        bs = annual_bs
+        if (quarterly_bs is not None and not quarterly_bs.empty
+                and (bs is None or bs.empty or quarterly_bs.columns[0] > bs.columns[0])):
+            bs = quarterly_bs
         if bs is not None and not bs.empty:
             result["total_debt"] = _extract_total_debt(bs)
-            result["prior_total_debt"] = _extract_total_debt_prev(bs)
+            result["prior_total_debt"] = (_extract_total_debt(annual_bs) if bs is quarterly_bs
+                                          else _extract_total_debt_prev(annual_bs))
             result["cash"]       = _yf_row(bs, CASH_LABELS)
             result["equity"]     = _yf_row(bs, EQUITY_LABELS)
             result["total_assets"]        = _yf_row(bs, TOTAL_ASSETS_LABELS)
@@ -2111,10 +2125,12 @@ def get_yf_price_and_history(ticker: str) -> dict:
             result["current_liabilities"] = _yf_row(bs, CURRENT_LIABILITIES_LABELS)
             result["total_liabilities"]   = _yf_row(bs, TOTAL_LIABILITIES_LABELS)
             result["net_ppe"]             = _yf_row(bs, NET_PPE_LABELS)
-            # Shares outstanding: newest (col 0) and prior year (col 1)
+            result["ncav_shares"]         = _yf_row(bs, SHARES_LABELS)
+        if annual_bs is not None and not annual_bs.empty:
+            # Buyback yield compares annual shares over a full year.
             for label in SHARES_LABELS:
-                if label in bs.index:
-                    shares_row = bs.loc[label]
+                if label in annual_bs.index:
+                    shares_row = annual_bs.loc[label]
                     result["shares_now"]  = _safe_float(shares_row.iloc[0]) if len(shares_row) >= 1 else None
                     result["shares_prev"] = _safe_float(shares_row.iloc[1]) if len(shares_row) >= 2 else None
                     break
@@ -2124,7 +2140,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         # Do NOT use the sorted `inc` local above — that is oldest→newest (for EPS).
         # _compute_piotroski / _compute_altman_z read columns[0] as current year.
         result["income_stmt_df"]   = t.income_stmt
-        result["balance_sheet_df"] = t.balance_sheet
+        result["balance_sheet_df"] = annual_bs
         result["cashflow_df"]      = t.cashflow
 
     except Exception as e:
@@ -2295,6 +2311,7 @@ def get_combined_data(ticker: str) -> dict:
         "total_liabilities":    yf_data["total_liabilities"],
         "net_ppe":              yf_data["net_ppe"],
         "shares_now":           yf_data["shares_now"],
+        "ncav_shares":          yf_data["ncav_shares"],
         "diluted_shares":       yf_data["diluted_shares"],
         "beta":                 yf_data["beta"],
         "price_currency":       yf_data["price_currency"],
@@ -2949,7 +2966,7 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         price,
         fund["current_assets"],
         fund["total_liabilities"],
-        fund["shares_now"],
+        fund.get("ncav_shares", fund["shares_now"]),
     )
     row.update(nm)
 
