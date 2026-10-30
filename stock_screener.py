@@ -1000,6 +1000,8 @@ EBIT_LABELS = [
     "Total Operating Income As Reported",
 ]
 
+OPERATING_EBIT_LABELS = ["Operating Income", "Total Operating Income As Reported"]
+
 INTEREST_EXPENSE_LABELS = [
     "Interest Expense Non Operating",
     "Interest Expense",
@@ -1987,6 +1989,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "ocf":                None,
         "capex":              None,
         "ebit":               None,
+        "operating_ebit":     None,
         "interest_expense":   None,
         "tax_rate":           DCF_DEFAULT_TAX_RATE,
         "total_debt":         None,
@@ -2044,6 +2047,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
                     break
             # EBIT from income statement (newest-first — NOT re-sorted here; use raw)
             result["ebit"] = _yf_row(t.income_stmt, EBIT_LABELS)
+            result["operating_ebit"] = _yf_row(t.income_stmt, OPERATING_EBIT_LABELS)
             result["revenue_ttm"] = _yf_row(t.income_stmt, REVENUE_LABELS)
             result["interest_expense"] = _yf_row(t.income_stmt, INTEREST_EXPENSE_LABELS)
             result["tax_rate"] = _effective_tax_rate(t.income_stmt)
@@ -2254,6 +2258,12 @@ def get_combined_data(ticker: str) -> dict:
         current_liabilities=yf_data["current_liabilities"],
         net_ppe=yf_data["net_ppe"],
     )
+    roc_operating_book = _compute_roc_book(
+        ebit=yf_data.get("operating_ebit"),
+        current_assets=yf_data["current_assets"],
+        current_liabilities=yf_data["current_liabilities"],
+        net_ppe=yf_data["net_ppe"],
+    )
     enterprise_value = (
         mkt_cap + yf_data["total_debt"] - yf_data["cash"]
         if all(value is not None for value in
@@ -2280,6 +2290,7 @@ def get_combined_data(ticker: str) -> dict:
         "market_cap_b":     mkt_cap_b,
         "market_cap_usd":   mkt_cap,
         "ebit":             yf_data["ebit"],
+        "operating_ebit":  yf_data.get("operating_ebit"),
         "enterprise_value": enterprise_value,
         "tangible_capital": tangible_capital,
         "annual_eps":       yf_data["annual_eps"],      # short yfinance history (Lynch anchor)
@@ -2330,6 +2341,7 @@ def get_combined_data(ticker: str) -> dict:
         "earnings_yield":        earnings_yield,
         "roic":                  roic,
         "roc_book":              roc_book,
+        "roc_operating_book":    roc_operating_book,
         "shareholder_yield":     shareholder_yield,
         "shareholder_yield_partial": sh_partial,
         # Phase 7 additions — raw statement DataFrames for Piotroski/Altman (D-05)
@@ -3377,6 +3389,10 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
                                      if _sector_allows(fund, "earnings_yield")
                                      else None)
     row["EBIT_Raw"]               = _r2(fund.get("ebit"))
+    row["Operating_EBIT_Raw"]     = _r2(fund.get("operating_ebit"))
+    row["ROC_Operating_Book_Pct"] = (_r2(fund.get("roc_operating_book"))
+                                     if _sector_allows(fund, "earnings_yield")
+                                     else None)
     row["EV_Raw"]                 = _r2(fund.get("enterprise_value"))
     row["Tangible_Capital_Raw"]   = _r2(fund.get("tangible_capital"))
     row["MarketCap_USD"]          = _r2(fund.get("market_cap_usd"))
