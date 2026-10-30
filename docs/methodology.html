@@ -215,21 +215,29 @@
       <p>
         Graham defined criteria that a stock must meet to be suitable for a conservative
         "defensive" investor — one who prioritises safety of principal and a reasonable return.
-        Each criterion earns one point; the total out of 8 is the defensive score.
+        Graham listed seven criteria. This screener shows eight checks for industrial companies
+        because it splits financial condition into current ratio and debt. Public utilities use
+        a different debt test and have seven applicable checks.
       </p>
 
       <p>
-        Columns: <code>DefensiveLabel</code> (Pass / Borderline / Fail) and
-        <code>DefensiveScore</code> (0–8).
+        Columns: <code>DefensiveLabel</code> (Pass / Research / Sector review /
+        Borderline / Fail), <code>DefensiveScore</code>, and
+        <code>DefensiveMaxScore</code>. A screen Pass still requires independent
+        source and price review before any purchase.
       </p>
 
       <dl>
         <dt>Pass</dt>
-        <dd>Score &ge; 6 out of 8 — meets Graham's defensive investor standard</dd>
+        <dd>All applicable checks pass: 8/8 for industrials or 7/7 for utilities</dd>
+        <dt>Research</dt>
+        <dd>At least 6 checks pass, but one or more applicable checks fail</dd>
+        <dt>Sector review</dt>
+        <dd>Financial company or missing sector; no automatic defensive screen pass</dd>
         <dt>Borderline</dt>
-        <dd>Score 4–5 — partially meets the criteria; warrants closer review</dd>
+        <dd>Score 4–5 — partially meets the criteria</dd>
         <dt>Fail</dt>
-        <dd>Score &lt; 4 — does not meet the defensive investor threshold</dd>
+        <dd>Score &lt; 4</dd>
       </dl>
 
       <h3>Eight-Point Checklist</h3>
@@ -246,28 +254,28 @@
         <tbody>
           <tr>
             <td>1</td>
-            <td>Market capitalisation</td>
-            <td>&ge; $2 billion (Graham's original: annual sales &ge; $100M in 1973 dollars)</td>
+            <td>Enterprise size</td>
+            <td>Annual sales &ge; $650M for industrials, or assets &ge; $325M for utilities (inflation-adjusted Graham thresholds)</td>
           </tr>
           <tr>
             <td>2</td>
             <td>Current ratio</td>
-            <td>&ge; 2.0 (current assets &divide; current liabilities)</td>
+            <td>&ge; 2.0 (current assets &divide; current liabilities) for industrials; not applicable to utilities</td>
           </tr>
           <tr>
             <td>3</td>
-            <td>Long-term debt / equity</td>
-            <td>&le; 1.0 (Graham's original: long-term debt &le; net current assets)</td>
+            <td>Debt</td>
+            <td>Industrial long-term debt &le; net current assets; utility total debt &le; 2 &times; book equity</td>
           </tr>
           <tr>
             <td>4</td>
             <td>Earnings per share history</td>
-            <td>Positive EPS in 8 of the last 10 fiscal years (Graham's original: every year for 10 years)</td>
+            <td>Positive EPS in every one of the last 10 fiscal years</td>
           </tr>
           <tr>
             <td>5</td>
             <td>Dividend history</td>
-            <td>Paid a dividend in 5 of the last 10 years (Graham's original: uninterrupted for 20 years — relaxed to reflect modern tech-heavy universe)</td>
+            <td>Uninterrupted dividends for 20 years</td>
           </tr>
           <tr>
             <td>6</td>
@@ -282,7 +290,7 @@
           <tr>
             <td>8</td>
             <td>P/B ratio</td>
-            <td>&le; 1.5, or P/E &times; P/B &le; 22.5</td>
+            <td>&le; 1.5, or three-year P/E &times; P/B &le; 22.5</td>
           </tr>
         </tbody>
       </table>

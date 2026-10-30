@@ -60,7 +60,7 @@ MIN_EPS_GROWTH_10Y  = 33.0   # cumulative % EPS growth over 10 years (~3%/yr)
 MAX_PE_GRAHAM       = 15.0   # P/E ≤ 15 (based on 3-yr avg EPS)
 MAX_PB_GRAHAM       = 1.5    # P/B ≤ 1.5
 MAX_PE_X_PB         = 22.5   # P/E × P/B ≤ 22.5
-DEFENSIVE_PASS_SCORE = 6     # minimum score to be "Pass"
+DEFENSIVE_RESEARCH_SCORE = 6  # shortlist only; never a purchase gate
 DEFENSIVE_BORDER_SCORE = 4   # minimum score to be "Borderline" (below = Fail)
 
 # Lynch price-band multipliers
@@ -999,6 +999,8 @@ EBIT_LABELS = [
     "Ebit",
     "Total Operating Income As Reported",
 ]
+
+OPERATING_EBIT_LABELS = ["Operating Income", "Total Operating Income As Reported"]
 
 INTEREST_EXPENSE_LABELS = [
     "Interest Expense Non Operating",
@@ -1987,6 +1989,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "ocf":                None,
         "capex":              None,
         "ebit":               None,
+        "operating_ebit":     None,
         "interest_expense":   None,
         "tax_rate":           DCF_DEFAULT_TAX_RATE,
         "total_debt":         None,
@@ -2002,6 +2005,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         "net_ppe":            None,
         "shares_now":         None,
         "shares_prev":        None,
+        "ncav_shares":        None,
         "diluted_shares":     None,
         "market_cap":         None,
         "beta":               None,
@@ -2043,6 +2047,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
                     break
             # EBIT from income statement (newest-first — NOT re-sorted here; use raw)
             result["ebit"] = _yf_row(t.income_stmt, EBIT_LABELS)
+            result["operating_ebit"] = _yf_row(t.income_stmt, OPERATING_EBIT_LABELS)
             result["revenue_ttm"] = _yf_row(t.income_stmt, REVENUE_LABELS)
             result["interest_expense"] = _yf_row(t.income_stmt, INTEREST_EXPENSE_LABELS)
             result["tax_rate"] = _effective_tax_rate(t.income_stmt)
@@ -2098,11 +2103,24 @@ def get_yf_price_and_history(ticker: str) -> dict:
             result["ocf"]   = _yf_row(cf, OCF_LABELS)
             result["capex"] = _yf_row(cf, CAPEX_LABELS)
 
-        # ── Balance sheet — debt, cash, equity, shares ──────────────────
-        bs = t.balance_sheet
+        # ── Balance sheet — current values from the newest available period ──
+        annual_bs = t.balance_sheet
+        if annual_bs is not None and not annual_bs.empty:
+            annual_bs = annual_bs.sort_index(axis=1, ascending=False)
+        try:
+            quarterly_bs = t.quarterly_balance_sheet
+        except Exception:
+            quarterly_bs = None
+        if quarterly_bs is not None and not quarterly_bs.empty:
+            quarterly_bs = quarterly_bs.sort_index(axis=1, ascending=False)
+        bs = annual_bs
+        if (quarterly_bs is not None and not quarterly_bs.empty
+                and (bs is None or bs.empty or quarterly_bs.columns[0] > bs.columns[0])):
+            bs = quarterly_bs
         if bs is not None and not bs.empty:
             result["total_debt"] = _extract_total_debt(bs)
-            result["prior_total_debt"] = _extract_total_debt_prev(bs)
+            result["prior_total_debt"] = (_extract_total_debt(annual_bs) if bs is quarterly_bs
+                                          else _extract_total_debt_prev(annual_bs))
             result["cash"]       = _yf_row(bs, CASH_LABELS)
             result["equity"]     = _yf_row(bs, EQUITY_LABELS)
             result["total_assets"]        = _yf_row(bs, TOTAL_ASSETS_LABELS)
@@ -2111,10 +2129,12 @@ def get_yf_price_and_history(ticker: str) -> dict:
             result["current_liabilities"] = _yf_row(bs, CURRENT_LIABILITIES_LABELS)
             result["total_liabilities"]   = _yf_row(bs, TOTAL_LIABILITIES_LABELS)
             result["net_ppe"]             = _yf_row(bs, NET_PPE_LABELS)
-            # Shares outstanding: newest (col 0) and prior year (col 1)
+            result["ncav_shares"]         = _yf_row(bs, SHARES_LABELS)
+        if annual_bs is not None and not annual_bs.empty:
+            # Buyback yield compares annual shares over a full year.
             for label in SHARES_LABELS:
-                if label in bs.index:
-                    shares_row = bs.loc[label]
+                if label in annual_bs.index:
+                    shares_row = annual_bs.loc[label]
                     result["shares_now"]  = _safe_float(shares_row.iloc[0]) if len(shares_row) >= 1 else None
                     result["shares_prev"] = _safe_float(shares_row.iloc[1]) if len(shares_row) >= 2 else None
                     break
@@ -2124,7 +2144,7 @@ def get_yf_price_and_history(ticker: str) -> dict:
         # Do NOT use the sorted `inc` local above — that is oldest→newest (for EPS).
         # _compute_piotroski / _compute_altman_z read columns[0] as current year.
         result["income_stmt_df"]   = t.income_stmt
-        result["balance_sheet_df"] = t.balance_sheet
+        result["balance_sheet_df"] = annual_bs
         result["cashflow_df"]      = t.cashflow
 
     except Exception as e:
@@ -2238,6 +2258,12 @@ def get_combined_data(ticker: str) -> dict:
         current_liabilities=yf_data["current_liabilities"],
         net_ppe=yf_data["net_ppe"],
     )
+    roc_operating_book = _compute_roc_book(
+        ebit=yf_data.get("operating_ebit"),
+        current_assets=yf_data["current_assets"],
+        current_liabilities=yf_data["current_liabilities"],
+        net_ppe=yf_data["net_ppe"],
+    )
     enterprise_value = (
         mkt_cap + yf_data["total_debt"] - yf_data["cash"]
         if all(value is not None for value in
@@ -2264,6 +2290,7 @@ def get_combined_data(ticker: str) -> dict:
         "market_cap_b":     mkt_cap_b,
         "market_cap_usd":   mkt_cap,
         "ebit":             yf_data["ebit"],
+        "operating_ebit":  yf_data.get("operating_ebit"),
         "enterprise_value": enterprise_value,
         "tangible_capital": tangible_capital,
         "annual_eps":       yf_data["annual_eps"],      # short yfinance history (Lynch anchor)
@@ -2286,6 +2313,7 @@ def get_combined_data(ticker: str) -> dict:
         "total_debt":           yf_data["total_debt"],
         "prior_total_debt":     yf_data["prior_total_debt"],
         "cash":                 yf_data["cash"],
+        "equity":               yf_data["equity"],
         "revenue_ttm":          yf_data["revenue_ttm"],
         "total_assets":         yf_data["total_assets"],
         "long_term_debt":       yf_data["long_term_debt"],
@@ -2294,6 +2322,7 @@ def get_combined_data(ticker: str) -> dict:
         "total_liabilities":    yf_data["total_liabilities"],
         "net_ppe":              yf_data["net_ppe"],
         "shares_now":           yf_data["shares_now"],
+        "ncav_shares":          yf_data["ncav_shares"],
         "diluted_shares":       yf_data["diluted_shares"],
         "beta":                 yf_data["beta"],
         "price_currency":       yf_data["price_currency"],
@@ -2312,6 +2341,7 @@ def get_combined_data(ticker: str) -> dict:
         "earnings_yield":        earnings_yield,
         "roic":                  roic,
         "roc_book":              roc_book,
+        "roc_operating_book":    roc_operating_book,
         "shareholder_yield":     shareholder_yield,
         "shareholder_yield_partial": sh_partial,
         # Phase 7 additions — raw statement DataFrames for Piotroski/Altman (D-05)
@@ -2699,27 +2729,27 @@ def graham_defensive_score(
     pb: float | None,
     sec_eps_series: dict | None = None,
     div_paid_years: set | None = None,
+    total_debt: float | None = None,
+    book_equity: float | None = None,
 ) -> dict:
     """
-    Score each Graham defensive-investor criterion (0 or 1 per check).
-    Returns score, breakdown, and Pass/Borderline/Fail label.
+    Score Graham defensive checks and separate research flags from screen eligibility.
 
     Size and debt use Graham's LITERAL tests (Intelligent Investor Ch.14),
     not market-cap or total-D/E proxies:
       Size — industrials: annual sales >= $100M (1974), inflation-adjusted;
              public utilities: total assets >= $50M (1974), inflation-adjusted.
-      Debt — long-term debt must not exceed net current assets (working
-             capital).  Applied uniformly; Graham framed it for industrials.
+      Industrial debt — long-term debt <= net current assets.
+      Utility debt — total debt <= twice book equity; current ratio is N/A.
+      Financial companies have no approved Chapter 14 sector method.
 
     The EPS-history criteria (stability, 10Y growth) run on the split-adjusted
     SEC 10Y series; the dividend record runs on 20 calendar years of yfinance
-    corporate actions.  annual_eps feeds the P/E×P/B guard; annual_dividends
-    remains in the signature for existing callers.
+    corporate actions.  annual_eps and annual_dividends remain in the signature
+    for existing callers.
     """
     checks = {}
 
-    # Short-window yfinance history, kept for the criterion-8 P/E×P/B guard.
-    valid_eps = [e for e in annual_eps if e is not None and e == e]  # e == e filters np.nan
     sec_years = sorted(sec_eps_series) if sec_eps_series else []
     sec_window = sec_years[-MIN_POSITIVE_EPS_YRS:]
     has_full_decade = (
@@ -2737,17 +2767,22 @@ def graham_defensive_score(
             revenue_ttm is not None and revenue_ttm >= GRAHAM_MIN_SALES_USD
         )
 
-    # 2) Current ratio
-    checks["CurrRatio_OK"]  = int(current_ratio is not None and current_ratio >= MIN_CURRENT_RATIO)
-
-    # 3) Debt — long-term debt <= net current assets (working capital)
-    nwc = None
-    if current_assets is not None and current_liabilities is not None:
-        nwc = current_assets - current_liabilities
-    checks["Debt_OK"] = int(
-        long_term_debt is not None and nwc is not None and nwc > 0
-        and long_term_debt <= nwc
-    )
+    # 2–3) Financial condition is one Graham criterion with sector-specific tests.
+    if sector == "Utilities":
+        checks["CurrRatio_OK"] = None  # not applicable to Graham's utility test
+        checks["Debt_OK"] = int(
+            total_debt is not None and book_equity is not None and book_equity > 0
+            and total_debt >= 0 and total_debt <= 2 * book_equity
+        )
+    else:
+        checks["CurrRatio_OK"] = int(current_ratio is not None and current_ratio >= MIN_CURRENT_RATIO)
+        nwc = None
+        if current_assets is not None and current_liabilities is not None:
+            nwc = current_assets - current_liabilities
+        checks["Debt_OK"] = int(
+            long_term_debt is not None and nwc is not None and nwc > 0
+            and long_term_debt <= nwc
+        )
 
     # 4) Earnings stability — positive EPS in EVERY one of the last 10 years
     # (literal Graham). Without 10 years of SEC history the test cannot be
@@ -2801,26 +2836,32 @@ def graham_defensive_score(
         checks["PE_Limit"]  = 0
 
     # 8) P/B ≤ 1.5 OR P/E × P/B ≤ 22.5
-    # The P/E×P/B branch is only meaningful with positive current EPS; a negative
-    # EPS makes pe_cur negative and (pe_cur * pb) trivially ≤ 22.5, which would
-    # award a spurious point (mirrors criterion 7's eps_3yr_avg > 0 guard).
+    # Use the same three-year average EPS as Graham's P/E test above.
     if pb and pb > 0:
-        cur_eps = valid_eps[-1] if valid_eps else None
-        pe_ok = cur_eps is not None and cur_eps > 0 and (price / cur_eps) * pb <= MAX_PE_X_PB
+        pe_ok = (eps_3yr_avg is not None and eps_3yr_avg > 0
+                 and (price / eps_3yr_avg) * pb <= MAX_PE_X_PB)
         checks["PB_Limit"]  = int(pb <= MAX_PB_GRAHAM or pe_ok)
     else:
         checks["PB_Limit"]  = 0
 
-    score = sum(checks.values())
+    score = sum(value for value in checks.values() if value is not None)
+    applicable = 7 if sector == "Utilities" else 8
+    method_supported = bool(sector) and sector not in {"Financial Services", "Financials"}
+    screen_pass = method_supported and score == applicable
 
-    if score >= DEFENSIVE_PASS_SCORE:
+    if screen_pass:
         label = "Pass"
+    elif not method_supported:
+        label = "Sector review"
+    elif score >= DEFENSIVE_RESEARCH_SCORE:
+        label = "Research"
     elif score >= DEFENSIVE_BORDER_SCORE:
         label = "Borderline"
     else:
         label = "Fail"
 
-    return {"DefensiveScore": score, "DefensiveLabel": label,
+    return {"DefensiveScore": score, "DefensiveMaxScore": applicable,
+            "DefensiveScreenPass": screen_pass, "DefensiveLabel": label,
             "EPS_Positive_Years_10": positive_eps_years, **checks}
 
 
@@ -2937,7 +2978,7 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         price,
         fund["current_assets"],
         fund["total_liabilities"],
-        fund["shares_now"],
+        fund.get("ncav_shares", fund["shares_now"]),
     )
     row.update(nm)
 
@@ -2998,6 +3039,8 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         pb                 = pb,
         sec_eps_series   = fund.get("sec_eps_series"),
         div_paid_years   = fund.get("div_paid_years"),
+        total_debt       = fund["total_debt"],
+        book_equity      = fund.get("equity"),
     )
     row.update(ds)
 
@@ -3346,6 +3389,10 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
                                      if _sector_allows(fund, "earnings_yield")
                                      else None)
     row["EBIT_Raw"]               = _r2(fund.get("ebit"))
+    row["Operating_EBIT_Raw"]     = _r2(fund.get("operating_ebit"))
+    row["ROC_Operating_Book_Pct"] = (_r2(fund.get("roc_operating_book"))
+                                     if _sector_allows(fund, "earnings_yield")
+                                     else None)
     row["EV_Raw"]                 = _r2(fund.get("enterprise_value"))
     row["Tangible_Capital_Raw"]   = _r2(fund.get("tangible_capital"))
     row["MarketCap_USD"]          = _r2(fund.get("market_cap_usd"))

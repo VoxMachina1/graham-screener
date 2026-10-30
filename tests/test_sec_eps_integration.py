@@ -230,6 +230,56 @@ def test_full_literal_pass_reaches_expected_checks():
     assert ds["EPS_Growth10Y"] == 1, ds  # (2.2/1.15)-1 = +91%
     assert ds["PE_Limit"] == 1, ds
     assert ds["DefensiveScore"] >= 7, ds
+    assert ds["DefensiveScreenPass"] is True, ds
+
+
+def test_seven_of_eight_is_research_only():
+    last_full = datetime.now().year - 1
+    need = set(range(last_full - 19, last_full + 1))
+    ds = graham_defensive_score(**_base_kwargs(
+        sec_eps_series=_ten_clean_years(), div_paid_years=need,
+        price=10.0, eps_3yr_avg=2.0, pb=1.0, current_ratio=1.9,
+    ))
+    assert ds["DefensiveScore"] == 7 and ds["DefensiveLabel"] == "Research", ds
+    assert ds["DefensiveScreenPass"] is False, ds
+
+
+def test_utility_uses_debt_to_book_equity_without_current_ratio():
+    last_full = datetime.now().year - 1
+    need = set(range(last_full - 19, last_full + 1))
+    kw = _base_kwargs(
+        sector="Utilities", total_assets=500_000_000, current_ratio=0.5,
+        total_debt=100_000_000, book_equity=60_000_000,
+        sec_eps_series=_ten_clean_years(), div_paid_years=need,
+        price=10.0, eps_3yr_avg=2.0,
+    )
+    ds = graham_defensive_score(**kw)
+    assert ds["CurrRatio_OK"] is None and ds["DefensiveMaxScore"] == 7, ds
+    assert ds["Debt_OK"] == 1 and ds["DefensiveScreenPass"] is True, ds
+    kw["total_debt"] = 130_000_000
+    assert graham_defensive_score(**kw)["DefensiveScreenPass"] is False
+
+
+def test_financial_sector_has_no_automatic_screen_pass():
+    last_full = datetime.now().year - 1
+    need = set(range(last_full - 19, last_full + 1))
+    ds = graham_defensive_score(**_base_kwargs(
+        sector="Financial Services", sec_eps_series=_ten_clean_years(),
+        div_paid_years=need, price=10.0, eps_3yr_avg=2.0,
+    ))
+    assert ds["DefensiveScore"] == 8, ds
+    assert ds["DefensiveScreenPass"] is False and ds["DefensiveLabel"] == "Sector review", ds
+
+
+def test_price_book_tradeoff_uses_three_year_earnings():
+    ds = graham_defensive_score(**_base_kwargs(
+        price=20.0, eps_3yr_avg=2.0, pb=2.0, annual_eps=[0.5],
+    ))
+    assert ds["PB_Limit"] == 1, ds
+    ds = graham_defensive_score(**_base_kwargs(
+        price=20.0, eps_3yr_avg=1.0, pb=2.0, annual_eps=[20.0],
+    ))
+    assert ds["PB_Limit"] == 0, ds
 
 
 if __name__ == "__main__":

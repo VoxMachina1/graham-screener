@@ -1,6 +1,7 @@
 """Offline checks for the IJR pilot's identity, filtering, and separate output."""
 
 import os
+import hashlib
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,6 +13,7 @@ os.environ.setdefault("FRED_API_KEY", "test")
 os.environ.setdefault("FINNHUB_API_KEY", "test")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import smallcap_pilot
 from smallcap_pilot import parse_ijr_holdings
 import stock_screener as screener
 
@@ -69,8 +71,28 @@ def test_separate_output_keeps_main_results_untouched():
         assert stats_path.exists()
 
 
+def test_live_pilot_retains_exact_holdings_source():
+    content = _csv("").encode("utf-8")
+    class Response:
+        def __init__(self, data):
+            self.text = data.decode("utf-8")
+            self.content = data
+        def raise_for_status(self):
+            pass
+    with TemporaryDirectory() as folder:
+        source = Path(folder) / "holdings_smallcap.csv"
+        with patch.object(smallcap_pilot, "HOLDINGS_PATH", source), \
+             patch.object(smallcap_pilot.requests, "get", return_value=Response(content)):
+            universe, metadata = smallcap_pilot.get_smallcap_universe()
+        assert len(universe) == 500
+        assert source.read_bytes() == content
+        assert metadata["holdings_sha256"] == hashlib.sha256(content).hexdigest()
+        assert metadata["holdings_source_status"] == "live"
+
+
 if __name__ == "__main__":
     test_filters_non_equity()
     test_rejects_wrong_fund_and_layout()
     test_separate_output_keeps_main_results_untouched()
+    test_live_pilot_retains_exact_holdings_source()
     print("IJR parser checks passed")
