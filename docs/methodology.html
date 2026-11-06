@@ -50,7 +50,7 @@
       </p>
 
       <h3>Lynch Status</h3>
-      <p>Column: <code>Lynch_Lynch_Status</code> — primary Lynch buy/hold/avoid signal based on the G+D fair value.</p>
+      <p>Column: <code>Lynch_Status</code> — primary Lynch buy/hold/avoid signal based on the G+D fair value.</p>
       <dl>
         <dt>Strong Buy</dt>
         <dd>Price is at or below 70% of Lynch fair value (EPS &times; (Growth% + Dividend%))</dd>
@@ -63,7 +63,7 @@
       </dl>
 
       <h3>PEG Band</h3>
-      <p>Column: <code>Lynch_Lynch_PEG_Band</code> — secondary Lynch signal based on the conservative PEG fair value.</p>
+      <p>Column: <code>Lynch_PEG_Band</code> — secondary Lynch signal based on the conservative PEG fair value.</p>
       <dl>
         <dt>Strong Buy</dt>
         <dd>Price is at or below 70% of conservative PEG fair value</dd>
@@ -87,7 +87,7 @@
       </dl>
 
       <h3>Company Categories</h3>
-      <p>Column: <code>Lynch_Lynch_Category</code> — automatically assigned based on the EPS growth rate.
+      <p>Column: <code>Lynch_Category</code> — automatically assigned based on the EPS growth rate.
          Lynch defined six categories in <em>One Up on Wall Street</em> (Ch. 8); this screener uses a
          simplified three-category version covering the growth-stock spectrum.</p>
       <dl>
@@ -105,15 +105,15 @@
         <dd>P/E ratio divided by Growth%. Below 1.0 = cheap; above 1.0 = rich.</dd>
         <dt><code>Lynch_PEGY</code></dt>
         <dd>P/E ratio divided by (Growth% + Dividend%). Rewards income-paying stocks.</dd>
-        <dt><code>Lynch_Lynch_Score</code></dt>
+        <dt><code>Lynch_Score</code></dt>
         <dd>(Growth% + Dividend%) divided by P/E. Inverse of PEGY — higher is better.</dd>
         <dt><code>Lynch_FV_GplusD</code></dt>
         <dd>G+D fair value: EPS &times; (Growth% + Dividend%). The primary Lynch fair value estimate.</dd>
-        <dt><code>Lynch_Lynch_BuyPrice</code></dt>
+        <dt><code>Lynch_BuyPrice</code></dt>
         <dd>Category-adjusted buy price — a category-specific discount applied to the G+D fair value
-            (EPS &times; (Growth% + Dividend%)). Positive <code>Lynch_Lynch_Discount_Pct</code> means the
+            (EPS &times; (Growth% + Dividend%)). Positive <code>Lynch_Discount_Pct</code> means the
             stock is trading below this price.</dd>
-        <dt><code>Lynch_Lynch_Discount_Pct</code></dt>
+        <dt><code>Lynch_Discount_Pct</code></dt>
         <dd>How far below Lynch_BuyPrice the stock is currently trading. Positive = trading below buy price (good).</dd>
       </dl>
 
@@ -148,7 +148,7 @@
       </p>
 
       <h3>Graham Status</h3>
-      <p>Column: <code>Graham_Graham_Status</code> — classifies current price relative to Graham fair value.</p>
+      <p>Column: <code>Graham_Status</code> — classifies current price relative to Graham fair value.</p>
       <dl>
         <dt>Deep Buy</dt>
         <dd>Price is at or below 60% of Graham fair value (40%+ margin of safety)</dd>
@@ -162,7 +162,7 @@
 
       <h3>Fair Value Formulas</h3>
 
-      <p><strong>Version A (<code>Graham_Graham_VA</code>):</strong>
+      <p><strong>Version A (<code>Graham_VA</code>):</strong>
         EPS &times; (8.5 + 2 &times; Growth%) &times; 4.4 &divide; AAA_Yield</p>
       <dl>
         <dt>8.5</dt>
@@ -175,17 +175,17 @@
         <dd>Current Moody's AAA corporate bond yield, fetched live from FRED on each run</dd>
       </dl>
 
-      <p><strong>Version B (<code>Graham_Graham_VB</code>):</strong>
+      <p><strong>Version B (<code>Graham_VB</code>):</strong>
         EPS &times; (7 + Growth%) &times; 4.4 &divide; AAA_Yield</p>
       <p>Version B uses a lower base P/E (7 vs. 8.5) and a single-multiple growth term
          instead of double — a more conservative variant of the same rate-adjusted formula.</p>
 
-      <p><strong><code>Graham_Graham_FV</code> = MIN(VA, VB)</strong> —
-         always uses the more conservative of the two estimates as the definitive fair value.</p>
+      <p><strong><code>Graham_FV_Min_ReferenceOnly</code> = MIN(VA, VB)</strong> —
+         a reference calculation only. The status and discount columns use canonical VA.</p>
 
       <h3>Graham Discount</h3>
       <p>
-        Column: <code>Graham_Graham_Discount_Pct</code> — measures how far the current price is
+        Column: <code>Graham_Discount_Pct</code> — measures how far the current price is
         below Graham fair value. A positive value means the stock is trading at a discount
         (good — potential margin of safety). A negative value means it is trading at a premium
         to fair value.
@@ -221,7 +221,7 @@
       </p>
 
       <p>
-        Columns: <code>DefensiveLabel</code> (Pass / Research / Sector review /
+        Columns: <code>DefensiveLabel</code> (Pass / Flag / Sector review /
         Borderline / Fail), <code>DefensiveScore</code>, and
         <code>DefensiveMaxScore</code>. A screen Pass still requires independent
         source and price review before any purchase.
@@ -229,9 +229,9 @@
 
       <dl>
         <dt>Pass</dt>
-        <dd>All applicable checks pass: 8/8 for industrials or 7/7 for utilities</dd>
-        <dt>Research</dt>
-        <dd>At least 6 checks pass, but one or more applicable checks fail</dd>
+        <dd>All applicable checks pass (8/8 for industrials or 7/7 for utilities) and canonical Graham status is Buy or Deep Buy</dd>
+        <dt>Flag</dt>
+        <dd>At least 6 checks pass without a purchase Pass, including a full score in a Watch or Avoid price band</dd>
         <dt>Sector review</dt>
         <dd>Financial company or missing sector; no automatic defensive screen pass</dd>
         <dt>Borderline</dt>

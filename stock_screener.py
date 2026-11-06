@@ -2673,7 +2673,7 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
     use the canonical 1974 VA.  Graham_Status and Graham_Discount_Pct are
     therefore computed off VA, and the defensive-sleeve rule ("Buy or Deep Buy
     on the canonical VA fair value") reads these columns.  Graham_VB and
-    Graham_FV remain in the output for reference.
+    Graham_FV_Min_ReferenceOnly remains in the output for reference.
 
     AUDIT CONCLUSION: Both formulas are algebraically correct relative to their
     definitions.  See tests/test_valuation_fixture.py.
@@ -2692,7 +2692,7 @@ def graham_metrics(price: float, eps: float, g: float, aaa_yield: float,
     m["Graham_VB"] = round(eps * (7 + g_capped) * GRAHAM_HIST_AAA / aaa_yield, 2)
 
     # Reference: the more conservative (lower) of the two — NOT used for bands
-    m["Graham_FV"] = min(m["Graham_VA"], m["Graham_VB"])
+    m["Graham_FV_Min_ReferenceOnly"] = min(m["Graham_VA"], m["Graham_VB"])
 
     # Price band — keyed off canonical VA per the 2026-10-16 project decision
     # (portfolios/newsletter use VA; defensive sleeve reads VA-based status)
@@ -2731,6 +2731,7 @@ def graham_defensive_score(
     div_paid_years: set | None = None,
     total_debt: float | None = None,
     book_equity: float | None = None,
+    graham_status: str | None = None,
 ) -> dict:
     """
     Score Graham defensive checks and separate research flags from screen eligibility.
@@ -2847,14 +2848,15 @@ def graham_defensive_score(
     score = sum(value for value in checks.values() if value is not None)
     applicable = 7 if sector == "Utilities" else 8
     method_supported = bool(sector) and sector not in {"Financial Services", "Financials"}
-    screen_pass = method_supported and score == applicable
+    screen_pass = (method_supported and score == applicable
+                   and graham_status in {"Buy", "Deep Buy"})
 
     if screen_pass:
         label = "Pass"
     elif not method_supported:
         label = "Sector review"
     elif score >= DEFENSIVE_RESEARCH_SCORE:
-        label = "Research"
+        label = "Flag"
     elif score >= DEFENSIVE_BORDER_SCORE:
         label = "Borderline"
     else:
@@ -3041,6 +3043,7 @@ def process_ticker(ticker: str, aaa_yield: float, risk_free_rate: float | None =
         div_paid_years   = fund.get("div_paid_years"),
         total_debt       = fund["total_debt"],
         book_equity      = fund.get("equity"),
+        graham_status    = gm.get("Graham_Status"),
     )
     row.update(ds)
 

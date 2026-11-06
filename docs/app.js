@@ -7,25 +7,22 @@
 
 // ── Nord Aurora signal color map ──────────────────────────────────────────
 // Keys are ACTUAL JSON column names (D-14). Values are "green"|"yellow"|"red".
-// NOTE: double-prefix keys (Lynch_Lynch_Status, Graham_Graham_Status) are
-// intentional — the row-assembly pattern in stock_screener.py prefixes
-// "Lynch_" onto keys already named "Lynch_Status", producing these names.
-// Do NOT "fix" the double prefix.
+// Keys match the single-prefix names emitted by stock_screener.py.
 var SIGNAL_COLORS = {
-  Lynch_Lynch_Status: {
+  Lynch_Status: {
     "Strong Buy": "green", "Buy": "green",
     "Hold": "yellow", "Avoid": "red"
   },
-  Lynch_Lynch_PEG_Band: {
+  Lynch_PEG_Band: {
     "Strong Buy": "green", "Buy": "green",
     "Hold": "yellow", "Avoid": "red"
   },
-  Graham_Graham_Status: {
+  Graham_Status: {
     "Deep Buy": "green", "Buy": "green",
     "Watch": "yellow", "Avoid": "red"
   },
   DefensiveLabel: {
-    "Pass": "green", "Research": "yellow", "Sector review": "yellow",
+    "Pass": "green", "Flag": "yellow", "Sector review": "yellow",
     "Borderline": "yellow", "Fail": "red"
   },
   Lynch_PEG_Status: {

@@ -43,6 +43,7 @@ def _base_kwargs(**over):
         price=20.0,
         eps_3yr_avg=1.2,
         pb=1.0,
+        graham_status="Buy",
         sec_eps_series=None,
         div_paid_years=None,
     )
@@ -240,7 +241,7 @@ def test_seven_of_eight_is_research_only():
         sec_eps_series=_ten_clean_years(), div_paid_years=need,
         price=10.0, eps_3yr_avg=2.0, pb=1.0, current_ratio=1.9,
     ))
-    assert ds["DefensiveScore"] == 7 and ds["DefensiveLabel"] == "Research", ds
+    assert ds["DefensiveScore"] == 7 and ds["DefensiveLabel"] == "Flag", ds
     assert ds["DefensiveScreenPass"] is False, ds
 
 
@@ -269,6 +270,19 @@ def test_financial_sector_has_no_automatic_screen_pass():
     ))
     assert ds["DefensiveScore"] == 8, ds
     assert ds["DefensiveScreenPass"] is False and ds["DefensiveLabel"] == "Sector review", ds
+
+
+def test_full_checks_need_canonical_buy_band_for_pass():
+    last_full = datetime.now().year - 1
+    need = set(range(last_full - 19, last_full + 1))
+    kw = _base_kwargs(sec_eps_series=_ten_clean_years(), div_paid_years=need,
+                      price=10.0, eps_3yr_avg=2.0)
+    assert graham_defensive_score(**kw)["DefensiveLabel"] == "Pass"
+    for status in ("Watch", "Avoid", None):
+        row = graham_defensive_score(**{**kw, "graham_status": status})
+        assert row["DefensiveScore"] == 8, row
+        assert row["DefensiveLabel"] == "Flag", row
+        assert row["DefensiveScreenPass"] is False, row
 
 
 def test_price_book_tradeoff_uses_three_year_earnings():
