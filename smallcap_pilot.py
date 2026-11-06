@@ -1,6 +1,7 @@
 """Run the separate IJR-equity small-cap screener pilot."""
 
 import csv
+import hashlib
 import json
 from datetime import datetime
 from io import StringIO
@@ -18,6 +19,7 @@ IJR_URL = (
 )
 RESULTS_PATH = Path("docs/data/results_smallcap.json")
 STATS_PATH = Path("docs/data/stats_smallcap.json")
+HOLDINGS_PATH = Path("docs/data/holdings_smallcap.csv")
 
 
 def parse_ijr_holdings(content: str) -> tuple[set[str], str]:
@@ -58,6 +60,9 @@ def get_smallcap_universe() -> tuple[pd.DataFrame, dict]:
         response = requests.get(IJR_URL, timeout=30)
         response.raise_for_status()
         tickers, as_of = parse_ijr_holdings(response.text)
+        HOLDINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HOLDINGS_PATH.write_bytes(response.content)
+        holdings_sha256 = hashlib.sha256(response.content).hexdigest()
         source_status = "live"
     except (requests.RequestException, ValueError) as exc:
         if not RESULTS_PATH.exists():
@@ -68,6 +73,8 @@ def get_smallcap_universe() -> tuple[pd.DataFrame, dict]:
             raise RuntimeError("Cached IJR pilot is incomplete") from exc
         as_of = cached["holdings_as_of"]
         source_status = "cached"
+        HOLDINGS_PATH.unlink(missing_ok=True)
+        holdings_sha256 = None
         screener.log.warning("IJR live holdings failed (%s); using cached %s list", exc, as_of)
     universe = pd.DataFrame(
         [{"ticker": ticker, "indexes": "IJRHoldings"} for ticker in sorted(tickers)]
@@ -77,6 +84,7 @@ def get_smallcap_universe() -> tuple[pd.DataFrame, dict]:
         "holdings_as_of": as_of,
         "holdings_url": IJR_URL,
         "holdings_source_status": source_status,
+        "holdings_sha256": holdings_sha256,
     }
     return universe, metadata
 

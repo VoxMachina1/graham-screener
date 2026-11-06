@@ -102,40 +102,40 @@
       { title: "Lynch PE",     field: "Lynch_PE",           sorter: "number", formatter: numFmt(2), ...num },
       { title: "Lynch PEG",    field: "Lynch_PEG",          sorter: "number", formatter: numFmt(2), ...num },
       { title: "Lynch PEGY",   field: "Lynch_PEGY",         sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Lynch Score",  field: "Lynch_Lynch_Score",  sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Lynch Score",  field: "Lynch_Score",  sorter: "number", formatter: numFmt(2), ...num },
       { title: "Lynch FV PEG", field: "Lynch_FV_PEG",       sorter: "number", formatter: numFmt(2), ...num },
       { title: "FV PEG Con",   field: "Lynch_FV_PEG_Con",   sorter: "number", formatter: numFmt(2), ...num },
       { title: "FV G+D",       field: "Lynch_FV_GplusD",    sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Lynch Cat",    field: "Lynch_Lynch_Category",sorter: "string", ...drop },
-      { title: "Buy Price",    field: "Lynch_Lynch_BuyPrice",sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Lynch Cat",    field: "Lynch_Category",sorter: "string", ...drop },
+      { title: "Buy Price",    field: "Lynch_BuyPrice",sorter: "number", formatter: numFmt(2), ...num },
       { title: "LV Ratio",     field: "Lynch_LV_Ratio",     sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Lynch Disc %", field: "Lynch_Lynch_Discount_Pct", sorter: "number", formatter: pctFmt, ...num },
+      { title: "Lynch Disc %", field: "Lynch_Discount_Pct", sorter: "number", formatter: pctFmt, ...num },
 
       // ── Lynch signal columns (traffic-light) ──────────────────────────────
-      { title: "Lynch Status", field: "Lynch_Lynch_Status", sorter: "string",
-        formatter: makeSignalFormatter("Lynch_Lynch_Status"), ...drop },
-      { title: "PEG Band",     field: "Lynch_Lynch_PEG_Band", sorter: "string",
-        formatter: makeSignalFormatter("Lynch_Lynch_PEG_Band"), ...drop },
+      { title: "Lynch Status", field: "Lynch_Status", sorter: "string",
+        formatter: makeSignalFormatter("Lynch_Status"), ...drop },
+      { title: "PEG Band",     field: "Lynch_PEG_Band", sorter: "string",
+        formatter: makeSignalFormatter("Lynch_PEG_Band"), ...drop },
       { title: "PEG Status",   field: "Lynch_PEG_Status",  sorter: "string",
         formatter: makeSignalFormatter("Lynch_PEG_Status"),  ...drop },
       { title: "PEGY Status",  field: "Lynch_PEGY_Status", sorter: "string",
         formatter: makeSignalFormatter("Lynch_PEGY_Status"), ...drop },
 
       // ── Graham metrics ────────────────────────────────────────────────────
-      { title: "Graham VA",    field: "Graham_Graham_VA",           sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Graham VB",    field: "Graham_Graham_VB",           sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Graham FV",    field: "Graham_Graham_FV",           sorter: "number", formatter: numFmt(2), ...num },
-      { title: "Graham Disc%", field: "Graham_Graham_Discount_Pct", sorter: "number", formatter: pctFmt,    ...num },
+      { title: "Graham VA",    field: "Graham_VA",           sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Graham VB",    field: "Graham_VB",           sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Min(VA,VB) ref", field: "Graham_FV_Min_ReferenceOnly", sorter: "number", formatter: numFmt(2), ...num },
+      { title: "Graham Disc%", field: "Graham_Discount_Pct", sorter: "number", formatter: pctFmt,    ...num },
 
       // ── Graham signal column (traffic-light) ──────────────────────────────
-      { title: "Graham Status",field: "Graham_Graham_Status", sorter: "string",
-        formatter: makeSignalFormatter("Graham_Graham_Status"), ...drop },
+      { title: "Graham Status",field: "Graham_Status", sorter: "string",
+        formatter: makeSignalFormatter("Graham_Status"), ...drop },
 
       // ── Defensive metrics ─────────────────────────────────────────────────
       { title: "Def Score",    field: "DefensiveScore",  sorter: "number", formatter: numFmt(1), ...num },
       { title: "Size OK",      field: "Size_OK",         sorter: "number", formatter: okFmt, ...num },
       { title: "Curr Ratio OK",field: "CurrRatio_OK",    sorter: "number", formatter: okFmt, ...num },
-      { title: "Debt/Eq OK",   field: "DebtEq_OK",       sorter: "number", formatter: okFmt, ...num },
+      { title: "Debt OK",      field: "Debt_OK",         sorter: "number", formatter: okFmt, ...num },
       { title: "EPS Stab",     field: "EPS_Stability",   sorter: "number", formatter: okFmt, ...num },
       { title: "Div Record",   field: "Div_Record",      sorter: "number", formatter: okFmt, ...num },
       { title: "EPS Gr 10Y",   field: "EPS_Growth10Y",   sorter: "number", formatter: okFmt, ...num },
@@ -211,9 +211,9 @@
   // ── Summary preset columns (D-01 — locked) ────────────────────────────────
   const SUMMARY_COLS = new Set([
     "Ticker", "Price", "Sector", "OverallScore", "is_trap", "CombinedScore",
-    "Lynch_Lynch_Status", "Lynch_Lynch_Score", "Lynch_Lynch_BuyPrice",
+    "Lynch_Status", "Lynch_Score", "Lynch_BuyPrice",
     "Lynch_PEG_Status", "Lynch_PEGY_Status",
-    "Graham_Graham_Status", "Graham_Graham_Discount_Pct", "Graham_Graham_FV",
+    "Graham_Status", "Graham_Discount_Pct", "Graham_FV_Min_ReferenceOnly",
     "DefensiveScore", "DefensiveLabel",
     "Piotroski_F", "Altman_Z", "DCF_Discount_Pct"
   ]);

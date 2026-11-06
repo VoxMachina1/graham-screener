@@ -1,9 +1,19 @@
 """Tests for Greenblatt true book ROC: EBIT / (NWC + net PPE)."""
 import sys
 import os
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from stock_screener import _compute_roc_book
+from stock_screener import OPERATING_EBIT_LABELS, _compute_roc_book, _yf_row
+
+
+def test_operating_earnings_excludes_nonoperating_sale_gain():
+    income = pd.DataFrame({"2026": [10_070_000_000, 4_599_000_000]},
+                          index=["EBIT", "Operating Income"])
+    operating = _yf_row(income, OPERATING_EBIT_LABELS)
+    assert operating == 4_599_000_000
+    assert _compute_roc_book(operating, 5_868_000_000, 4_092_000_000,
+                             2_586_000_000) < 110
 
 
 def test_book_formula():
@@ -42,6 +52,7 @@ def test_negative_ebit_not_clamped():
 
 
 if __name__ == "__main__":
+    test_operating_earnings_excludes_nonoperating_sale_gain()
     test_book_formula()
     test_differs_from_roic_variant()
     test_missing_ppe_excluded()
