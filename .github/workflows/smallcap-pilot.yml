@@ -3,6 +3,14 @@ name: Run IJR Small-Cap Pilot
 on:
   workflow_dispatch:
     inputs:
+      pilot:
+        description: "Small-cap ETF research proxy"
+        required: true
+        default: ijr
+        type: choice
+        options:
+          - ijr
+          - iwm
       publish_results:
         description: "Commit validated pilot results to the selected branch"
         required: false
@@ -27,25 +35,39 @@ jobs:
           set -euo pipefail
           for test_file in tests/test_*.py; do python "$test_file"; done
           node tests/test_dashboard_js.mjs
-      - name: Screen IJR equity holdings
+      - name: Screen selected small-cap holdings
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-        run: python smallcap_pilot.py
+        run: |
+          if [ "${{ inputs.pilot }}" = "iwm" ]; then
+            python iwm_pilot.py
+          else
+            python smallcap_pilot.py
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: inputs.pilot != 'iwm'
         with:
           name: ijr-pilot-${{ github.run_id }}
           path: |
             docs/data/results_smallcap.json
             docs/data/stats_smallcap.json
+            docs/data/holdings_smallcap.csv
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: inputs.pilot == 'iwm'
+        with:
+          name: iwm-pilot-${{ github.run_id }}
+          path: pilot-output/iwm/
           retention-days: 14
           if-no-files-found: error
       - name: Publish pilot data
-        if: inputs.publish_results == true
+        if: inputs.pilot != 'iwm' && inputs.publish_results == true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data/results_smallcap.json docs/data/stats_smallcap.json
+          git add docs/data/results_smallcap.json docs/data/stats_smallcap.json docs/data/holdings_smallcap.csv
           if ! git diff --cached --quiet; then
             git commit -m "chore: publish IJR pilot results"
             git push

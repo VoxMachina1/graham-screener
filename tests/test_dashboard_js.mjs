@@ -48,6 +48,9 @@ assert.ok(Array.isArray(columns), "buildColumns() must return an array");
 assert.ok(columns.length >= 60, "Dashboard should expose the complete column set");
 
 const fields = new Set(columns.map((column) => column.field));
+const sample = JSON.parse(fs.readFileSync(
+  new URL("../docs/data/results.json", import.meta.url), "utf8",
+)).rows[0];
 for (const requiredField of [
   "Ticker",
   "OverallScore",
@@ -55,8 +58,14 @@ for (const requiredField of [
   "DCF_Intrinsic_Value",
   "DCF_Data_Warning",
   "Valuation_Input_Warning",
+  "Lynch_Status",
+  "Graham_Status",
+  "Debt_OK",
 ]) {
   assert.ok(fields.has(requiredField), `Missing dashboard column: ${requiredField}`);
+  assert.ok(Object.hasOwn(sample, requiredField), `Column absent from screen data: ${requiredField}`);
 }
+assert.ok(fields.has("Graham_FV_Min_ReferenceOnly"));
+assert.ok(![...fields].some((field) => /^(Lynch_Lynch|Graham_Graham)/.test(field)));
 
 console.log(`Dashboard buildColumns() returned ${columns.length} columns`);

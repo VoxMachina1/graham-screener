@@ -78,7 +78,7 @@ KO_INPUTS = {
 #   Graham_VB     = 2.50 * (7 + 7) * (4.4/5.5)
 #                 = 2.50 * 14.0 * 0.8
 #                 = 2.50 * 11.2             = 28.00
-#   Graham_FV     = min(45.00, 28.00)       = 28.00   (reference column only)
+#   Graham_FV_Min_ReferenceOnly = min(45.00, 28.00) = 28.00 (reference only)
 #   Graham_Discount_Pct = (1 - 70/45)*100  = (1 - 1.5556)*100 = -55.6%  (VA-based)
 #   Graham_Status: 70 > 0.95*45=42.75      → "Avoid"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ KO_EXPECTED = {
     # Graham outputs
     "Graham_VA":          45.00,    # hand-computed; tolerance ±1.0
     "Graham_VB":          28.00,    # hand-computed; tolerance ±1.0
-    "Graham_FV":          28.00,    # min(VA, VB) = VB (more conservative)
+    "Graham_FV_Min_ReferenceOnly": 28.00,  # min(VA, VB), reference only
     "Graham_Discount_Pct": -55.6,   # hand-computed off VA; tolerance ±5
     "Graham_Status":      "Avoid",
 }
@@ -150,10 +150,10 @@ def run_fixture():
         f"Graham_VB: expected {KO_EXPECTED['Graham_VB']} ± 1.0, got {vb}"
     )
 
-    fv = gm.get("Graham_FV")
-    assert fv is not None, "Graham_FV is None — formula returned no value"
-    assert abs(fv - KO_EXPECTED["Graham_FV"]) <= 1.0, (
-        f"Graham_FV: expected {KO_EXPECTED['Graham_FV']} ± 1.0, got {fv}"
+    fv = gm.get("Graham_FV_Min_ReferenceOnly")
+    assert fv is not None, "Graham reference minimum is None"
+    assert abs(fv - KO_EXPECTED["Graham_FV_Min_ReferenceOnly"]) <= 1.0, (
+        f"Graham reference minimum: expected {KO_EXPECTED['Graham_FV_Min_ReferenceOnly']} ± 1.0, got {fv}"
     )
 
     gd = gm.get("Graham_Discount_Pct")
@@ -173,7 +173,7 @@ def run_fixture():
     print(f"  Lynch_Discount_Pct  = {ld}  (expected {KO_EXPECTED['Lynch_Discount_Pct']})")
     print(f"  Graham_VA           = {va}  (expected {KO_EXPECTED['Graham_VA']})")
     print(f"  Graham_VB           = {vb}  (expected {KO_EXPECTED['Graham_VB']})")
-    print(f"  Graham_FV           = {fv}  (expected {KO_EXPECTED['Graham_FV']})")
+    print(f"  Graham reference min = {fv}  (expected {KO_EXPECTED['Graham_FV_Min_ReferenceOnly']})")
     print(f"  Graham_Discount_Pct = {gd}  (expected {KO_EXPECTED['Graham_Discount_Pct']})")
 
 
